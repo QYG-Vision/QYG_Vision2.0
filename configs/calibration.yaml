@@ -1,0 +1,37 @@
+# 标定板参数：pattern_cols（列）和 pattern_rows（行）是内部角点数（棋盘格尺寸减1）
+pattern_cols: 7
+pattern_rows: 7
+center_distance_mm: 25
+
+
+
+
+#单位矩阵，QLF修改过的
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1] 
+# R_gimbal2imubody: [0, -1, 0, 1, 0, 0, 0, 0, 1] 
+# R_gimbal2imubody: [0.66367241634327012, 0.74484777938176527, 0.068852809202960802, -0.74284344277904091, 0.66709229590108032, -0.056315968158302608, -0.087878002396888033, -0.013771503167004458, 0.99603604472692309]
+#R_camera2gimbal最终算出来的目标矩阵：【0，0，1，-1，0，0，0，-1，0】
+
+
+
+# 重投影误差: 0.0182px
+camera_matrix: [1844.433440188405, 0, 802.22696396122149, 0, 1844.2369020765498, 622.29584062850688, 0, 0, 1]
+distort_coeffs: [-0.035567068466948397, 0.15744340882610811, 0.0011774272870158492, -0.00020822571799560997, 0]
+# 工业相机参数
+# 支持的相机类型：
+#   - "hikrobot": 海康威视 USB 相机（需要 vid_pid）
+#   - "hikrobot_gige": 海康威视 GigE 相机（不需要 vid_pid）
+#   - "mindvision": 迈德威视相机（需要 vid_pid）
+camera_name: "hikrobot"
+exposure_ms: 50
+gain: 30.0
+vid_pid: "2bdf:0001" 
+
+#####-----gimbal参数（串口）-----#####
+com_port: "/dev/gimbal"
+
+#####-----cboard参数-----#####
+# quaternion_canid: 0x100
+# bullet_speed_canid: 0x110
+# send_canid: 0xff
+# can_interface: "can0"

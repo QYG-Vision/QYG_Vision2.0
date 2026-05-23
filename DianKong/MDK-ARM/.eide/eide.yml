@@ -1,0 +1,306 @@
+version: "4.1"
+name: JiuXian_Gimbal_X_ver1.0
+type: ARM
+deviceName: null
+packDir: null
+srcDirs: []
+virtualFolder:
+  name: <virtual_root>
+  files: []
+  folders:
+    - name: Application
+      files: []
+      folders:
+        - name: MDK-ARM
+          files:
+            - path: startup_stm32f427xx.s
+          folders: []
+        - name: User
+          files: []
+          folders:
+            - name: Core
+              files:
+                - path: ../Core/Src/main.c
+                - path: ../Core/Src/gpio.c
+                - path: ../Core/Src/freertos.c
+                - path: ../Core/Src/can.c
+                - path: ../Core/Src/dma.c
+                - path: ../Core/Src/tim.c
+                - path: ../Core/Src/usart.c
+                - path: ../Core/Src/stm32f4xx_it.c
+                - path: ../Core/Src/stm32f4xx_hal_msp.c
+                - path: ../Core/Src/stm32f4xx_hal_timebase_tim.c
+              folders: []
+    - name: Drivers
+      files: []
+      folders:
+        - name: STM32F4xx_HAL_Driver
+          files:
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c
+            - path: ../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
+          folders: []
+        - name: CMSIS
+          files:
+            - path: ../Core/Src/system_stm32f4xx.c
+          folders: []
+    - name: Middlewares
+      files: []
+      folders:
+        - name: FreeRTOS
+          files:
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/croutine.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/event_groups.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/list.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/queue.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/tasks.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/timers.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
+            - path: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c
+          folders: []
+        - name: Library
+          files: []
+          folders:
+            - name: DSP Library
+              files: []
+              folders:
+                - name: DSP Library
+                  files:
+                    - path: ../Middlewares/ST/ARM/DSP/Lib/arm_cortexM4lf_math.lib
+                  folders: []
+    - name: algorithm
+      files:
+        - path: ../algorithm/pid.c
+        - path: ../algorithm/lpf.c
+        - path: ../algorithm/ADRC2311.c
+        - path: ../algorithm/NLADRC_ver1.c
+        - path: ../algorithm/smc.c
+        - path: ../algorithm/Ramp.c
+      folders: []
+    - name: bsp
+      files:
+        - path: ../bsp/bsp_can.c
+        - path: ../bsp/Flysky_bsp.c
+        - path: ../bsp/MiniPC.c
+        - path: ../bsp/bsp_wit.c
+        - path: ../bsp/bsp_buzzer.c
+      folders: []
+    - name: drv
+      files:
+        - path: ../drv/DJI_drv.c
+      folders: []
+    - name: node
+      files:
+        - path: ../node/ctrl_node.c
+        - path: ../node/Serial_node.c
+        - path: ../node/master_node.c
+      folders: []
+    - name: SerialDebug
+      files:
+        - path: ../SerialDebug/SerialPlot.c
+      folders: []
+    - name: Logic
+      files:
+        - path: ../Logic/auto_mode.c
+        - path: ../Logic/decision.c
+      folders: []
+    - name: CRC
+      files:
+        - path: ../CRC/CRC16.c
+        - path: ../CRC/CRC_table.c
+      folders: []
+    - name: floatUnpack
+      files:
+        - path: ../floatUnpack/IEEE754.c
+      folders: []
+    - name: RM_referee
+      files:
+        - path: ../RM_referee/RM_referee.c
+      folders: []
+    - name: ::CMSIS
+      files: []
+      folders: []
+dependenceList: []
+outDir: build
+miscInfo:
+  uid: ce14b3f91fcae7b0cb79a40884303ef5
+targets:
+  JiuXian_Gimbal_X_ver1.0:
+    cppPreprocessAttrs:
+      defineList:
+        - USE_HAL_DRIVER
+        - STM32F427xx
+        - ARM_MATH_CM4F
+        - __FPU_PRESENT=1U
+        - ARM_MATH_CHECK
+        - USE_PWR_LDO_SUPPLY
+      incList:
+        - ../Core/Inc
+        - ../Drivers/STM32F4xx_HAL_Driver/Inc
+        - ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy
+        - ../Middlewares/Third_Party/FreeRTOS/Source/include
+        - ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2
+        - ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F
+        - ../Drivers/CMSIS/Device/ST/STM32F4xx/Include
+        - ../Drivers/CMSIS/Include
+        - ../Middlewares/ST/ARM/DSP/Inc
+        - ../algorithm
+        - ../bsp
+        - ../drv
+        - ../node
+        - ../SerialDebug
+        - ../Logic
+        - ../CRC
+        - ../floatUnpack
+        - ../RM_referee
+        - .cmsis/include
+        - RTE/_JiuXian_Gimbal_X_ver1.0
+      libList: []
+    excludeList: []
+    settings:
+      debugger: cortex-debug
+    toolchain: AC6
+    toolchainConfigMap:
+      AC6:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 3
+          afterBuildTasks: []
+          asm-compiler:
+            $use: asm-auto
+            defines: []
+            misc-controls: ""
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            language-c: c99
+            language-cpp: c++11
+            link-time-optimization: false
+            one-elf-section-per-function: true
+            optimization: level-0
+            short-enums#wchar: true
+            warnings: ac5-like-warnings
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            misc-controls: --diag_suppress=L6329
+            output-format: elf
+            ro-base: ""
+            rw-base: ""
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x30000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x200000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+      STLink:
+        address: "0x8000000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/jiuxian_gimbal_x_ver1.0.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+    uploader: STLink

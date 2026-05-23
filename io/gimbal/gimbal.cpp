@@ -1,0 +1,288 @@
+#include "gimbal.hpp"
+#include "io/gimbal/gimbal_protocol.hpp"
+#include "io/ros2/aim2nav.hpp"
+
+#include <iomanip>
+#include <sstream>
+#include <cstring>
+#include <cmath>
+
+#include "tools/logger.hpp"
+#include "tools/math_tools.hpp"
+#include "tools/yaml.hpp"
+
+namespace io
+{
+
+uint16_t Gimbal::get_crc16(uint8_t* data, uint32_t len) {
+    return gimbal_protocol::crc16_x25(data, len);
+}
+
+Gimbal::Gimbal(const std::string & config_path)
+{
+  // 从配置文件中加载YAML配置并读取串口设备路径
+  auto yaml = tools::load(config_path);
+  auto com_port = tools::read<std::string>(yaml, "com_port");
+
+  try {
+    // 配置串口通信参数
+    serial_.setPort(com_port);           // 设置串口设备路径
+    serial_.setBaudrate(921600);         // 设置波特率为921600（高速通信）
+    serial_.setFlowcontrol(serial::flowcontrol_none);  // 无流控
+    serial_.setParity(serial::parity_none);            // 无奇偶校验
+    serial_.setStopbits(serial::stopbits_one);         // 1位停止位
+    serial_.setBytesize(serial::eightbits);            // 8位数据位
+    
+    // 设置串口超时参数（20毫秒超时）
+    serial::Timeout time_out = serial::Timeout::simpleTimeout(20);
+    serial_.setTimeout(time_out);
+    
+    // 打开串口连接
+    serial_.open();
+    
+    // 等待1秒确保串口稳定连接
+    usleep(1000000); 
+  } catch (const std::exception & e) {
+    // 串口打开失败时记录错误并退出程序
+    tools::logger()->error("[Gimbal] Failed to open serial: {}", e.what());
+    exit(1);
+  }
+
+  // 启动读取线程，用于持续接收云台数据
+  thread_ = std::thread(&Gimbal::read_thread, this);
+  
+  // 记录云台初始化完成日志
+  tools::logger()->info("[Gimbal] Initialized.");
+}
+
+Gimbal::~Gimbal()
+{
+  quit_ = true;
+  if (thread_.joinable()) thread_.join();
+  serial_.close();
+}
+
+GimbalMode Gimbal::mode() const
+{
+  // 使用互斥锁确保线程安全访问模式状态
+  // 防止在多线程环境下读取模式时发生数据竞争
+  std::lock_guard<std::mutex> lock(mutex_);
+  
+  // 返回当前云台的工作模式
+  // 可能的模式包括：IDLE(空闲)、AUTO_AIM(自动瞄准)、SMALL_BUFF(小符)、BIG_BUFF(大符)
+  return mode_;
+}
+
+// // 完整的语义信息：
+// GimbalMode   Gimbal::mode() const
+// │           │         │     │
+// │           │         │     └── "我不会修改对象状态"
+// │           │         └──────── "我是mode函数"  
+// │           └────────────────── "我属于Gimbal类"
+// └────────────────────────────── "我返回GimbalMode类型"
+
+GimbalState Gimbal::state() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return state_;
+}
+
+std::string Gimbal::str(GimbalMode mode) const
+{
+  switch (mode) {
+    case GimbalMode::IDLE: return "IDLE";
+    case GimbalMode::AUTO_AIM: return "AUTO_AIM";
+    case GimbalMode::SMALL_BUFF: return "SMALL_BUFF";
+    case GimbalMode::BIG_BUFF: return "BIG_BUFF";
+    default: return "INVALID";
+  }
+}
+
+Eigen::Vector3d Gimbal::euler(std::chrono::steady_clock::time_point t)
+{
+  while (true) {
+    if (queue_.empty()) return Eigen::Vector3d::Zero();
+    auto [euler_a, t_a] = queue_.pop();
+    if (queue_.empty()) return euler_a;
+    auto [euler_b, t_b] = queue_.front();
+    auto t_ab = tools::delta_time(t_a, t_b);
+    auto t_ac = tools::delta_time(t_a, t);
+    auto k = (t_ab < 1e-6) ? 0.0 : (t_ac / t_ab);
+    
+    Eigen::Vector3d euler_c = euler_a + k * (euler_b - euler_a);
+    
+    if (t < t_a) return euler_c;
+    if (!(t_a < t && t <= t_b)) continue;
+    
+    return euler_c;
+  }
+}
+
+void Gimbal::send(bool control, bool fire, float yaw, float pitch, float linear_x, float linear_y, float angular_z)
+{
+  auto frame = gimbal_protocol::make_send_frame(
+    control, fire, yaw, pitch, linear_x, linear_y, angular_z);
+
+
+    // //5.14
+    // // 临时调试：每秒打印一次原始发送字节（16进制）
+    // {
+    //   static auto last_hex_log = std::chrono::steady_clock::now();
+    //   auto now_hex = std::chrono::steady_clock::now();
+    //   if (std::chrono::duration_cast<std::chrono::milliseconds>(now_hex - last_hex_log).count() >= 1000) {
+    //     auto * bytes = reinterpret_cast<const uint8_t*>(&frame);
+    //     std::ostringstream oss;
+    //     for (size_t i = 0; i < sizeof(frame); ++i)
+    //       oss << fmt::format("{:02X} ", bytes[i]);
+    //     tools::logger()->info("[Gimbal] TX raw ({}B): {}", sizeof(frame), oss.str());
+    //     last_hex_log = now_hex;
+    //   }
+    // }
+
+
+  try {
+    serial_.write(reinterpret_cast<uint8_t*>(&frame), sizeof(frame));
+  } catch (const std::exception & e) {
+    tools::logger()->warn("[Gimbal] Send failed: {}", e.what());
+  }
+}
+
+void Gimbal::read_thread()
+{
+  tools::logger()->info("[Gimbal] read_thread running.");
+  const size_t target_size = sizeof(ReceiveFrame);
+
+  while (!quit_) {
+    try {
+        size_t available = serial_.available();
+        if (available > 0) {
+            std::vector<uint8_t> temp(available);
+            serial_.read(temp.data(), available);
+            rx_buffer_.insert(rx_buffer_.end(), temp.begin(), temp.end());
+        }
+    } catch (const std::exception & e) {
+        tools::logger()->warn("[Gimbal] Serial error: {}", e.what());
+        reconnect();
+        continue;
+    }
+
+    size_t start_idx = (size_t)-1;
+    for (size_t i = 0; i < rx_buffer_.size(); ++i) {
+        if (i + 1 < rx_buffer_.size() && rx_buffer_[i] == 0x47 && rx_buffer_[i+1] == 0x44) {
+            start_idx = i;
+            break;
+        }
+    }
+
+    if (start_idx == (size_t)-1) {
+        if (rx_buffer_.size() > 1024) rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.end() - 100);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+    }
+
+    if (rx_buffer_.size() < start_idx + target_size) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+    }
+
+    ReceiveFrame rx;
+    std::memcpy(&rx, &rx_buffer_[start_idx], target_size);
+    
+    if (get_crc16(reinterpret_cast<uint8_t*>(&rx), target_size - 2) == rx.crc16) {
+        // // 临时调试：前 3 帧打印整帧，确认电控到底发了什么
+        // {
+        //   static int gd_cnt = 0;
+        //   if (++gd_cnt <= 3) {
+        //     const auto header0 = rx.header[0];
+        //     const auto header1 = rx.header[1];
+        //     const auto current_mode = rx.current_mode;
+        //     const auto actual_vx = rx.actual_vx;
+        //     const auto actual_vy = rx.actual_vy;
+        //     const auto actual_wz = rx.actual_wz;
+        //     const auto imu_yaw = rx.imu_yaw;
+        //     const auto imu_pitch = rx.imu_pitch;
+        //     const auto yaw_angular = rx.yaw_angular;
+        //     const auto pitch_angular = rx.pitch_angular;
+        //     const auto odom_x = rx.odom_x;
+        //     const auto chassis_state = rx.chassis_state;
+        //     const auto mode = rx.mode;
+        //     const auto vyaw = rx.vyaw;
+        //     const auto vpitch = rx.vpitch;
+        //     const auto vroll = rx.vroll;
+        //     const auto crc16 = rx.crc16;
+
+        //     tools::logger()->info(
+        //         "[Gimbal] GD frame: hdr=0x{:02X} 0x{:02X}, current_mode=0x{:02X}, actual_vx={:.3f}, actual_vy={:.3f}, actual_wz={:.3f}, imu_yaw={:.3f}, imu_pitch={:.3f}, yaw_angular={:.3f}, pitch_angular={:.3f}, odom_x={:.3f}, chassis_state=0x{:02X}, mode=0x{:02X}, vyaw={:.3f}, vpitch={:.3f}, vroll={:.3f}, crc16=0x{:04X}",
+        //         header0, header1, current_mode,
+        //         actual_vx, actual_vy, actual_wz,
+        //         imu_yaw, imu_pitch,
+        //         yaw_angular, pitch_angular,
+        //         odom_x, chassis_state, mode,
+        //         vyaw, vpitch, vroll,
+        //         crc16);
+        //   }
+        // }
+        rx.vroll = rx.vroll;
+        rx.vpitch = rx.vpitch;
+        auto t_now = std::chrono::steady_clock::now();
+        GimbalState latest_state;
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            state_.current_mode = rx.current_mode;
+            state_.actual_vx = rx.actual_vx;
+            state_.actual_vy = rx.actual_vy;
+            state_.actual_wz = rx.actual_wz;
+            state_.imu_yaw = rx.imu_yaw;
+            state_.imu_pitch = rx.imu_pitch;
+            state_.roll_imu = rx.vroll;
+            state_.yaw_angular = rx.yaw_angular;
+            state_.pitch_angular = rx.pitch_angular;
+            state_.odom_x = rx.odom_x;
+            state_.chassis_state = rx.chassis_state;
+            state_.mode = rx.mode;
+            state_.vyaw = rx.vyaw;
+            state_.vpitch = rx.vpitch;
+            state_.vroll = rx.vroll;
+
+            // 别名映射
+            state_.yaw_imu = state_.imu_yaw;
+            state_.pitch_imu = state_.imu_pitch;
+
+            if (rx.mode == 0x11) mode_ = GimbalMode::AUTO_AIM;
+            else if (rx.mode == 0x12) mode_ = GimbalMode::SMALL_BUFF;
+            else if (rx.mode == 0x13) mode_ = GimbalMode::BIG_BUFF;
+            else mode_ = GimbalMode::IDLE;
+
+            latest_state = state_;
+        }
+
+        Eigen::Vector3d euler_deg(rx.vroll, rx.vpitch, rx.vyaw);
+        queue_.push({euler_deg, t_now});
+
+        if (aim2nav_) {
+            aim2nav_->publish(latest_state);
+        }
+    }
+
+    rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + start_idx + target_size);
+  }
+}
+
+void Gimbal::reconnect()
+{
+  int max_retry_count = 10;
+  for (int i = 0; i < max_retry_count && !quit_; ++i) {
+    tools::logger()->warn("[Gimbal] Reconnecting... {}/{}", i + 1, max_retry_count);
+    try {
+      if (serial_.isOpen()) serial_.close();
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      serial_.open();
+      break;
+    } catch (...) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
+}
+
+}  // namespace io

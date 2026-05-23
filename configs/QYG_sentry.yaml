@@ -1,0 +1,130 @@
+# enemy_color: "red"
+enemy_color: "blue"
+
+
+#####-----神经网络参数-----#####
+yolo_name: yolov5
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/yolov5.xml
+device: "AUTO:NPU" 
+min_confidence: 0.8
+use_traditional: true
+
+#####-----ROI-----#####
+roi: 
+  x: 420
+  y: 50
+  width: 600
+  height: 600
+
+use_roi: false
+
+#####-----USB相机参数-----#####
+# image_width: 1280
+# image_height: 720
+# fov_h: 57.7 #87.7
+# fov_v: 56.7 
+# new_fov_h: 27 #67
+# new_fov_v: 40.9
+# usb_frame_rate: 120
+# usb_exposure: 500 #1-80000______250
+# usb_gamma: 160
+# usb_gain: 10 #0-96
+
+#####-----工业相机参数-----#####
+camera_name: "hikrobot"
+#exposure_ms: 0.8
+exposure_ms: 10
+gain: 10
+vid_pid: "2bdf:0001"
+# camera_name: "hikrobot_gige"
+# exposure_ms: 0.8
+# gain: 16.9
+
+#####-----传统方法参数-----#####
+threshold: 150
+max_angle_error: 45 # degree
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25 # degree
+min_confidence: 0.8
+
+#####-----gimbalk（串口）参数-----#####
+com_port: "/dev/gimbal"
+
+#####-----tracker参数-----#####
+min_detect_count: 5
+max_temp_lost_count: 25
+outpost_max_temp_lost_count: 75
+
+#####-----EKF参数-----#####
+ekf_v1: 3.0      # 普通机器人加速度方差 (m^2/s^4)
+ekf_v2: 40.0     # 普通机器人角加速度方差 (rad^2/s^4)
+ekf_v1_outpost: 10    # 前哨站加速度方差
+ekf_v2_outpost: 0.1   # 前哨站角加速度方差
+ekf_r_yaw: 0.05       # yaw 观测噪声方差
+ekf_r_pitch: 0.05     # pitch 观测噪声方差
+ekf_r_distance: 0.5   # 距离观测噪声方差
+ekf_r_angle: 0.8      # 装甲板角度观测噪声方差
+
+#####-----aimer参数-----#####还需要校准，校准这个offset的参数
+yaw_offset: 0 # degree -2.5
+pitch_offset: 0  # degree 2
+comming_angle: 60 # degree
+leaving_angle: 20 # degree
+left_yaw_offset: -1
+right_yaw_offset: -0.6
+decision_speed: 10 # rad/s
+high_speed_delay_time: 0.026 # s
+low_speed_delay_time: 0.030 # s
+
+
+#####-----planner-----#####
+fire_thresh: 0.003
+
+max_yaw_acc: 50
+Q_yaw: [9e5, 0]
+R_yaw: [0.1]
+
+max_pitch_acc: 50
+Q_pitch: [9e5, 100]
+R_pitch: [1.0]
+
+#####-----shooter参数-----#####
+first_tolerance: 5 # 近距离射击容差，degree
+second_tolerance: 2 # 远距离射击容差，degree
+judge_distance: 3 #距离判断阈值
+auto_fire: true # 是否由自瞄控制射击
+
+#####-----decider参数-----#####
+mode: 1
+
+#####-----工业相机标定参数-----#####
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+
+# # 重投影误差: 0.1486px
+# camera_matrix: [1817.4159031775814, 0, 776.6491291781598, 0, 1820.0411807606888, 600.09909272761035, 0, 0, 1]
+# distort_coeffs: [-0.034146037462613382, 0.1301191719197167, -0.0011312605669394982, -0.0024937759275689276, 0]
+
+# 重投影误差: 0.0220px
+camera_matrix: [1859.4103630087818, 0, 801.27211862199897, 0, 1859.1792365179183, 628.69987497090187, 0, 0, 1]
+distort_coeffs: [-0.033840632466391123, 0.17808572233313325, 0.0012065169605909964, -0.00017575982090081799, 0]
+# 相机同理想情况的偏角: yaw-38.61 pitch-83.13 roll138.11 degree
+# R_camera2gimbal: [0.99280600845428402, 0.079959031349012347, -0.089122291727714145, -0.093562757924526438, 0.98255161032712657, -0.16074309743540177, 0.074714388886134839, 0.16792524035801842, 0.98296432984319071]
+# R_camera2gimbal: [0, 0, 1, -1, 0, 0, 0, -1, 0]
+# t_camera2gimbal: [-0.19951188888957572, 0.21592906678986623, 0.90120446225670114]
+# R_camera2gimbal: [-0.034024447804279968, -0.99859748869572029, -0.040563438244487562, -0.98295143817935016, 0.040774076338205963, -0.17928732492821001, 0.18068980915580499, 0.033771737730929438, -0.98296015310788243]
+# t_camera2gimbal: [0.081281256241914943, 0.066010456610121074, -0.15671881203007734]
+# R_camera2gimbal: [0.02823004230930648, -0.014076983590428133, 0.99950232778328707, -0.99954530259354468, -0.010995644138609872, 0.028076393521179785, 0.010594940981141165, -0.99984045444409364, -0.014380990321749998]
+# t_camera2gimbal: [0.045517325957791413, 0.10544338092767802, 0.034649710880185793]
+
+
+R_camera2gimbal: [-0.057393460908254035, 0.067815424420843512, 0.99604571122795049, -0.99811743621560944, 0.017711464998006132, -0.058718715329980499, -0.021623463352377026, -0.9975406619372692, 0.066671235284814889]
+t_camera2gimbal: [0.077872837546250809, -0.0041150135229372714, 0.056088454023066239]
