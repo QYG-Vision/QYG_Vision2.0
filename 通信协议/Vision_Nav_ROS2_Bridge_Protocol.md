@@ -66,9 +66,9 @@ rqt MatPlot / 调试工具
 
 | 字段 | 含义 | 视觉端用途 |
 |------|------|------------|
-| `linear.x` | 底盘 X 方向速度指令 | 传入 `Gimbal::send(..., linear_x, ...)` |
-| `linear.y` | 底盘 Y 方向速度指令 | 传入 `Gimbal::send(..., linear_y, ...)` |
-| `angular.z` | 底盘 Z 轴角速度指令 | 传入 `Gimbal::send(..., angular_z)` |
+| `linear.x` | 底盘 X 方向速度指令 | 原样传入 `Gimbal::send(..., linear_x, ...)`，QY 下行封包时取反 |
+| `linear.y` | 底盘 Y 方向速度指令 | 原样传入 `Gimbal::send(..., linear_y, ...)`，QY 下行封包时取反 |
+| `angular.z` | 底盘 Z 轴角速度指令 | 原样传入 `Gimbal::send(..., angular_z)`，QY 下行封包时取反 |
 | `linear.z` | 暂不使用 | 保持 0 |
 | `angular.x` | 暂不使用 | 保持 0 |
 | `angular.y` | 暂不使用 | 保持 0 |
@@ -91,6 +91,8 @@ gimbal.send(
 ```
 
 如果还没有收到 `/cmd_vel`，`latest_state_` 默认全 0，车辆不会动。
+
+注意：`Nav2Aim` 缓存和 `Gimbal::send()` 调用参数保留导航原始值，便于日志和 `/cmd_vel_real` 对比；真正发给电控的 QY 下行帧在 `io::gimbal_protocol::make_send_frame()` 中统一编码为 `-linear.x`、`-linear.y`、`-angular.z`。
 
 ## 3. 视觉到机器人描述: `/serial/gimbal_joint_state`
 
@@ -163,11 +165,11 @@ rqt MatPlot 推荐对比：
 
 | `Gimbal::send()` 参数 | 来源 |
 |-----------------------|------|
-| `linear_x` | `/cmd_vel.linear.x` |
-| `linear_y` | `/cmd_vel.linear.y` |
-| `angular_z` | `/cmd_vel.angular.z` |
+| `linear_x` | `/cmd_vel.linear.x`，QY 下行帧编码为负值 |
+| `linear_y` | `/cmd_vel.linear.y`，QY 下行帧编码为负值 |
+| `angular_z` | `/cmd_vel.angular.z`，QY 下行帧编码为负值 |
 
-注意：当前 `Gimbal::send()` 会把底盘速度按 `[-1, 1]` 范围编码进 32 bit 字段。如果导航输出是 m/s、rad/s，需要确保电控端和视觉端对限幅/归一化的理解一致。
+注意：当前 `Gimbal::send()` 会把底盘速度取反后按 `[-1, 1]` 范围编码进 32 bit 字段。如果导航输出是 m/s、rad/s，需要确保电控端和视觉端对限幅/归一化的理解一致。
 
 ## 6. 验证方式
 
@@ -194,7 +196,7 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
 "{linear: {x: 0.3, y: -0.2, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.1}}" -r 10
 ```
 
-视觉日志中的 `tx_vx/tx_vy/tx_wz` 应接近 `0.3/-0.2/0.1`。
+视觉日志中的 `tx_vx/tx_vy/tx_wz` 仍是 `Nav2Aim` 读到的原始值，应接近 `0.3/-0.2/0.1`；QY 下行帧实际发给电控的三轴编码值为 `-0.3/0.2/-0.1`。
 
 验证 `/cmd_vel_real`：
 

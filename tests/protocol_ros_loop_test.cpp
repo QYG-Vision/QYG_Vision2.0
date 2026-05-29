@@ -230,17 +230,17 @@ int main(int argc, char ** argv)
     "QY frame pack", "pitch command encodes and decodes correctly",
     "Check pitch unit: MiniPC sends radians in [-pi, pi].");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_x), cmd_vel.linear.x, kEpsilon,
-    "QY frame pack", "linear_x command encodes /cmd_vel.linear.x",
-    "Check chassis command range [-1, 1] and field order.");
+    io::gimbal_protocol::decode_chassis_command(tx.linear_x), -cmd_vel.linear.x, kEpsilon,
+    "QY frame pack", "linear_x command encodes negated /cmd_vel.linear.x",
+    "Check chassis command sign, range [-1, 1], and field order.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_y), cmd_vel.linear.y, kEpsilon,
-    "QY frame pack", "linear_y command encodes /cmd_vel.linear.y",
-    "Check chassis command range [-1, 1] and field order.");
+    io::gimbal_protocol::decode_chassis_command(tx.linear_y), -cmd_vel.linear.y, kEpsilon,
+    "QY frame pack", "linear_y command encodes negated /cmd_vel.linear.y",
+    "Check chassis command sign, range [-1, 1], and field order.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.angular_z), cmd_vel.angular.z, kEpsilon,
-    "QY frame pack", "angular_z command encodes /cmd_vel.angular.z",
-    "Check chassis command range [-1, 1] and field order.");
+    io::gimbal_protocol::decode_chassis_command(tx.angular_z), -cmd_vel.angular.z, kEpsilon,
+    "QY frame pack", "angular_z command encodes negated /cmd_vel.angular.z",
+    "Check /cmd_vel angular.z sign and mapping.");
   pass("QY frame pack");
 
   rclcpp::shutdown();
