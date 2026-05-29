@@ -72,10 +72,8 @@ t_camera2gimbal: [0.045517325957791413, 0.10544338092767802, 0.03464971088018579
 
 
 #####-----cboard参数-----#####
-quaternion_canid: 0x100  # blue
-bullet_speed_canid: 0x101  # red
-send_canid: 0xff
-can_interface: "can0"
+cboard_com_port: "/dev/cboard"
+cboard_baudrate: 921600
 
 #####-----gimbal参数-----#####
 com_port: "/dev/gimbal"

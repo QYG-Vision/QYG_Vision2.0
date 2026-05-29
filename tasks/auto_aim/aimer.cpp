@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "tools/logger.hpp"
@@ -11,6 +12,33 @@
 
 namespace auto_aim
 {
+namespace
+{
+uint8_t target_id_from_name(ArmorName name)
+{
+  switch (name) {
+    case ArmorName::one:  // 1 号机器人
+      return 1;
+    case ArmorName::two:  // 2 号机器人
+      return 2;
+    case ArmorName::three:  // 3 号机器人
+      return 3;
+    case ArmorName::four:  // 4 号机器人
+      return 4;
+    case ArmorName::five:  // 5 号机器人
+      return 5;
+    case ArmorName::sentry:  // 哨兵
+      return 6;
+    case ArmorName::outpost:  // 前哨站
+      return 7;
+    case ArmorName::base:  // 基地
+      return 8;
+    default:  // 未识别目标或非装甲板
+      return 0;
+  }
+}
+}  // namespace
+
 Aimer::Aimer(const std::string & config_path)
 : left_yaw_offset_(std::nullopt), right_yaw_offset_(std::nullopt)
 {
@@ -119,7 +147,7 @@ io::Command Aimer::aim(
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
-  return {true, false, yaw, pitch};
+  return {true, false, yaw, pitch, 0, target_id_from_name(target.name), 1};  // 有效目标，带目标 ID
 }
 
 io::Command Aimer::aim(

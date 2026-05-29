@@ -2,14 +2,14 @@
 
 ## 目录概述
 
-`io/` 目录提供了整个视觉系统的硬件接口抽象层，包括相机、云台、CAN总线通信、IMU等硬件设备的封装。所有IO模块都位于 `io` 命名空间下，采用统一的接口设计，便于上层任务模块调用。
+`io/` 目录提供了整个视觉系统的硬件接口抽象层，包括相机、云台串口、CBoard 串口协议、IMU等硬件设备的封装。所有IO模块都位于 `io` 命名空间下，采用统一的接口设计，便于上层任务模块调用。
 
 ## 模块架构
 
 ```
 io/
 ├── camera.*              # 相机抽象接口（工厂模式）
-├── cboard.*              # CAN总线控制板通信
+├── cboard.*              # CBoard PC 串口控制协议
 ├── command.hpp           # 控制命令数据结构
 ├── gimbal/               # 云台串口通信
 ├── dm_imu/               # 达妙IMU串口通信
@@ -76,16 +76,14 @@ camera.read(img, timestamp);
 
 ---
 
-### 2. CBoard（CAN总线控制板）
+### 2. CBoard（PC 串口控制协议）
 
 **文件**: `cboard.hpp`, `cboard.cpp`
 
 **功能**:
-- 通过CAN总线与控制板通信
-- 接收IMU四元数数据（用于姿态解算）
-- 接收弹速、模式、射击模式等信息
-- 发送控制命令（yaw, pitch, 射击控制等）
-- 支持SocketCAN和USB2CAN两种CAN接口
+- 通过串口向电控发送 `pc_protocol_spec.md` 定义的 15 字节控制包
+- 发送控制模式、yaw、pitch、target_id、target_valid 与 Modbus CRC16
+- 协议当前未定义电控回传 IMU、弹速、模式，因此这些值由配置默认值兜底
 
 **接口**:
 ```cpp
@@ -103,25 +101,18 @@ public:
 ```
 
 **实现方式**:
-- **CAN接口选择**: 优先尝试SocketCAN，失败后自动切换到USB2CAN
-- **IMU数据队列**: 使用线程安全队列存储IMU四元数，支持时间戳插值查询
-- **回调机制**: CAN接收采用回调函数，在独立线程中处理
-- **自动重连**: SocketCAN和USB2CAN都实现了守护线程，自动检测连接状态并重连
+- **串口发送**: 使用 `serial` 库，默认 921600 8N1，无流控
+- **固定包长**: `header('p','c') + mode + yaw(float32) + pitch(float32) + target_id + target_valid + crc16`
+- **CRC**: Modbus CRC16，对前 13 字节计算，小端写入最后 2 字节
 
 **数据协议**:
-- **接收**:
-  - `quaternion_canid`: 接收IMU四元数（14位量化，范围[-1, 1]）
-  - `bullet_speed_canid`: 接收弹速、模式、射击模式、FT角度
-- **发送**:
-  - `send_canid`: 发送控制命令（control, shoot, yaw, pitch, horizon_distance）
+- 详见项目根目录 `pc_protocol_spec.md`
 
 **配置参数**:
-- `quaternion_canid`: IMU四元数CAN ID（必填）
-- `bullet_speed_canid`: 弹速信息CAN ID（必填）
-- `send_canid`: 控制命令CAN ID（必填）
-- `can_interface`: SocketCAN接口名（如 "can0"）
-- `usb2can_device`: USB2CAN设备路径（如 "/dev/ttyACM0"）
-- `can_bitrate`: CAN波特率（默认1000000，支持500000/1000000/2000000/4000000）
+- `cboard_com_port`: CBoard 串口设备路径（如 "/dev/cboard"）
+- `cboard_baudrate`: CBoard 串口波特率（默认 921600）
+- `cboard_default_bullet_speed`: 协议无弹速回传时使用的默认弹速
+- `cboard_default_mode`: 协议无模式回传时使用的默认模式
 
 **使用示例**:
 ```cpp
@@ -140,8 +131,8 @@ cboard.send(cmd);  // 发送控制命令
 - `src/sentry.cpp` - 哨兵程序（多相机）
 - `src/uav.cpp` - 无人机程序
 - `src/mt_standard.cpp` - 多线程标准程序
-- `tests/cboard_test.cpp` - CAN板测试程序
-- 所有需要CAN通信的主程序
+- `tests/cboard_test.cpp` - CBoard 串口测试程序
+- 所有需要向电控发送控制包的主程序
 
 ---
 
@@ -742,14 +733,12 @@ gain: 16.9
 # vid_pid: "2bdf:0001"  # USB相机需要
 ```
 
-### CAN配置
+### CBoard 串口配置
 ```yaml
-quaternion_canid: 0x01
-bullet_speed_canid: 0x110
-send_canid: 0xff
-can_interface: "can0"  # SocketCAN
-# usb2can_device: "/dev/ttyACM0"  # USB2CAN
-# can_bitrate: 1000000  # USB2CAN波特率
+cboard_com_port: "/dev/cboard"
+cboard_baudrate: 921600
+# cboard_default_bullet_speed: 23.0
+# cboard_default_mode: "auto_aim"
 ```
 
 ### 云台配置
@@ -775,7 +764,7 @@ io (静态库)
 
 ## 注意事项
 
-1. **CAN接口优先级**: CBoard优先使用SocketCAN，失败后自动切换到USB2CAN
+1. **CBoard 通信**: CBoard 按 `pc_protocol_spec.md` 通过串口发送 15 字节控制包
 2. **线程安全**: 所有IO模块都使用线程安全的数据结构，支持多线程访问
 3. **自动重连**: SocketCAN、USB2CAN、相机等都有自动重连机制
 4. **时间戳插值**: IMU和云台数据支持时间戳插值，确保数据同步
@@ -787,7 +776,7 @@ io (静态库)
 ## 测试程序
 
 - `tests/camera_test.cpp` - 相机测试
-- `tests/cboard_test.cpp` - CAN板测试
+- `tests/cboard_test.cpp` - CBoard 串口测试
 - `tests/gimbal_test.cpp` - 云台测试
 - `tests/dm_test.cpp` - IMU测试
 - `tests/multi_usbcamera_test.cpp` - 多相机测试
@@ -801,4 +790,3 @@ io (静态库)
 - 云台支持MPC控制模式
 - 相机支持GigE接口
 - ROS2模块支持条件编译
-

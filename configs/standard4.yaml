@@ -72,10 +72,8 @@ R_camera2gimbal: [0.02823004230930648, -0.014076983590428133, 0.9995023277832870
 t_camera2gimbal: [0.045517325957791413, 0.10544338092767802, 0.034649710880185793]
 
 #####-----cboard参数-----#####
-quaternion_canid: 0x100
-bullet_speed_canid: 0x101
-send_canid: 0xff
-can_interface: "can0"
+cboard_com_port: "/dev/cboard"
+cboard_baudrate: 921600
 
 #####-----gimbal参数-----#####
 com_port: "/dev/gimbal"

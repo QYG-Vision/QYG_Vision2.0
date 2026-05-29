@@ -29,7 +29,5 @@ gain: 10
 vid_pid: "2bdf:0001"
 
 #####-----cboard参数-----#####
-quaternion_canid: 0x100
-bullet_speed_canid: 0x110
-send_canid: 0xff
-can_interface: "can0"
+cboard_com_port: "/dev/cboard"
+cboard_baudrate: 921600

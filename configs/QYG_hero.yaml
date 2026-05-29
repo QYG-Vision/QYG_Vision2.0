@@ -21,7 +21,7 @@ roi:
 use_roi: false
 
 #####-----传统方法参数-----#####
-threshold: 150
+threshold: 100
 max_angle_error: 45 # degree
 min_lightbar_ratio: 1.5
 max_lightbar_ratio: 20
@@ -55,7 +55,7 @@ auto_fire: true # 是否由自瞄控制射击
 #####-----camera参数-----#####
 camera_name: "hikrobot_gige"
 exposure_ms: 1
-gain: 1
+gain: 30
 
 #  1  0  0
 #  0  1  0
@@ -77,10 +77,8 @@ t_camera2gimbal: [0.11741499878328482, 0.010442011579886511, 0.08176242640600857
 
 
 #####-----cboard参数-----#####
-quaternion_canid: 0x100
-bullet_speed_canid: 0x101
-send_canid: 0x10
-can_interface: "can0"
+cboard_com_port: "/dev/cboard"
+cboard_baudrate: 921600
 
 
 #####-----buff_detector参数-----#####

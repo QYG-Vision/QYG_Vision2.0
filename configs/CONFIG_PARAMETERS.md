@@ -19,7 +19,7 @@
 | 标定与外参 | `camera_matrix`（相机内参矩阵）, `distort_coeffs`（相机畸变系数）, `R_camera2gimbal`（相机坐标系到“云台（gimbal）”坐标系的旋转矩阵）, `t_camera2gimbal`（相机坐标系到 gimbal 坐标系的平移向量）, `R_gimbal2imubody`（云台坐标系到 IMU（或机体）坐标系之间的旋转矩阵，与云台和imu的安装关系对应） | 相机内外参，坐标系转换矩阵与平移，用于像素↔世界/云台坐标转换 | `solver.*`, `trajectory.*`, PnP & 重投影误差优化 |
 | 工业相机参数 | `camera_name`（相机类型：`"hikrobot"`, `"hikrobot_gige"`, `"mindvision"` 等）, `exposure_ms`（曝光时间，毫秒）, `gain`（增益，数值范围依相机而定）, `gamma`（伽马值，仅部分相机支持，如 mindvision）, `vid_pid`（USB 设备的 VID:PID，用于多相机时区分设备，格式：`"2bdf:0001"`） | 工业相机硬件采集配置 | `io/camera.*`, `io/hikrobot/*`, `io/mindvision/*` |
 | USB相机参数 | `image_width`, `image_height`（采集分辨率，像素）, `usb_frame_rate`（目标帧率，FPS）, `usb_exposure`（曝光，设备单位，范围通常 1-80000）, `usb_gamma`（伽马值，通常 0-255）, `usb_gain`（增益，通常 0-96）, `new_usb_exposure`（可选，用于动态调整曝光）, `fov_h`, `fov_v`（水平/垂直视场角，度）, `new_image_width`, `new_image_height`（算法处理分辨率，像素）, `new_fov_h`, `new_fov_v`（处理后的视场角，度） | USB 相机硬件采集配置、视场角（用于视场内角度换算与 ROI 决策） | `io/usbcamera.*`, FOV 在 `decider.*` 中用于角度归一化 |
-| CAN （与Cboard通信）| `quaternion_canid`（接收 IMU 四元数的 CAN ID，数据：（x,y,z,w））, `bullet_speed_canid`（接收弹速与模式信息的 CAN ID，数据包括：接收弹速、模式、射击模式、FT 角）, `send_canid`（下发控制命令的 CAN ID，数据包括：是否控制，是否发射，yaw,pitch,horizon_distance(水平距离，无人机使用)）, `can_interface`, `com_port` | 设备通信 ID 与接口名（IMU队列、弹速更新、指令下发） | `io/cboard.*`, `io/gimbal.*` |
+| CBoard 串口协议 | `cboard_com_port`, `cboard_baudrate`, `cboard_default_bullet_speed`, `cboard_default_mode` | 按 `pc_protocol_spec.md` 发送 15 字节控制包：mode、yaw、pitch、target_id、target_valid、Modbus CRC16 | `io/cboard.*` |
 | MPC / 规划Planner | `fire_thresh`（决策“是否开火”的阈值。代码里把 yaw 与 pitch 的误差（在预测时间点）做欧氏距离（hypot），若小于 fire_thresh 则认为命中可信可以开火。单位：弧度（rad）。原因：整个 Planner 中角度/速度均以弧度/弧度每秒为单位处理）, `max_yaw_acc`, `max_pitch_acc`, （对控制输入 u 的上下界限制（MPC 中的加速度限制）。在模型里状态是 [angle, angular_velocity]，控制量 u 对速度积分（因此 u 是加速度）。
 单位：弧度/秒^2（rad/s^2））`Q_yaw`,`Q_pitch`,（状态成本矩阵 Q 的对角元素（state 维度为 2），通常形如 [w_angle, w_rate]，在 MPC 的二次目标中权衡对角/速度误差的惩罚强度，Q[0] 越大 => 更强烈地惩罚角度偏差；Q[1] 越大 => 惩罚角速度偏差（能抑制震荡或不希望的大速度）） `R_yaw`, `R_pitch`（控制输入（u）的代价，对应 R（通常是 1×1，因为只有一个输入维度），用于抑制过大的控制（加速度）输出，R 越大 => MPC 更不愿意使用大加速度（更“保守”）） | 规划器约束与代价权重，决定角速度/加速度优化与触发阈值 | `planner/planner.*`, `tinympc/*.cpp` |
 | BUFF 检测显式参数 | `model`（BUFF 专用 YOLO 模型文件路径，必需）, `detect.contrast`（对比度调整系数）, `detect.brightness.{blue,red}`（红蓝方亮度偏移，通常负值降低亮度）, `detect.brightness_threshold.{blue,red}`（红蓝方二值化阈值）, `detect.morphology_size.{blue,red}`（形态学操作核大小，用于去噪）, `detect.dilate_size`（膨胀操作次数）, `R_contours_min_area`, `R_contours_max_area`（R 字母轮廓面积范围，像素²）, `fanblades_head_contours_min_area`, `fanblades_head_contours_max_area`（扇叶头部轮廓面积范围）, `fanblades_body_contours_min_area`, `fanblades_body_contours_max_area`（扇叶主体轮廓面积范围）, `standard_fanblade_path`（标准扇叶模板图片路径，用于模板匹配） | 图像预处理亮度调节、二值化阈值、形态学核大小、候选轮廓面积过滤、标准扇叶模板路径、BUFF YOLO 模型路径 | `buff_detector.*`, `yolo11_buff.*`, `img_tools.*` |
@@ -70,7 +70,7 @@ not_armor -> third| 决策优先级映射选择（不同敌方角色聚焦策略
   - `gamma`: 伽马值，仅部分相机支持（如 mindvision），用于亮度曲线调整
   - `vid_pid`: USB 设备的供应商 ID:产品 ID，格式为 `"VID:PID"`（如 `"2bdf:0001"`），用于多相机时区分设备，在 `io/camera.*` 中用于设备过滤
 - 标定外参组：`R_gimbal2imubody`, `R_camera2gimbal`, `t_camera2gimbal`, `camera_matrix`, `distort_coeffs` 在 `solver` 做像素→世界坐标、重投影误差优化及姿态调整。
-- CAN / 串口 ID：用于 `CBoard` 接收 IMU 四元数与弹速, 以及发送控制指令 (`send_canid`)；`com_port` 串口路径用于云台通信重连。
+- CBoard 串口参数：`cboard_com_port` 与 `cboard_baudrate` 用于向电控发送 `pc_protocol_spec.md` 定义的 15 字节控制包；`cboard_default_bullet_speed` 和 `cboard_default_mode` 用于协议未回传弹速/模式时的默认值。
 - Planner 参数（仅出现在含 MPC 的配置如 `standard4.yaml` / `sentry.yaml`）：`fire_thresh` 触发高级控制或开火条件阈值；`Q_*`, `R_*` 为状态/测量权重，`max_*_acc` 为加速度约束。
 - BUFF 检测 / 瞄准参数（在多功能角色如 `standard3.yaml` / `standard4.yaml` / `sentry.yaml` / `uav.yaml` / `mvs.yaml` 中出现）：
   - `model`: BUFF 专用 YOLO 模型路径（必需），如 `"assets/yolo11_buff_int8.xml"`
@@ -114,7 +114,7 @@ not_armor -> third| 决策优先级映射选择（不同敌方角色聚焦策略
 
 ### 3. `calibration.yaml`
 - `pattern_cols`, `pattern_rows`, `center_distance_mm`: 标定板网格规格（用于标定脚本计算内参）。
-- 与部分运行配置重复的相机与 CAN 参数：可能用于标定阶段硬件初始化，与运行期配置区分（可合并或保持独立）。
+- 与部分运行配置重复的相机与 CBoard 串口参数：可能用于标定阶段硬件初始化，与运行期配置区分（可合并或保持独立）。
 
 ### 4. `mvs.yaml`
 - 多视觉系统（Multi-Vision System）配置文件，结构与其他配置文件相似
@@ -141,7 +141,7 @@ not_armor -> third| 决策优先级映射选择（不同敌方角色聚焦策略
 ## 迁移到新平台的最小修改清单
 - 相机：更新 `camera_name`, 曝光、分辨率、FOV；若无精确 FOV，可通过标定或测量更新。
 - 标定：重新生成 `camera_matrix`, `distort_coeffs`, `R_camera2gimbal`, `t_camera2gimbal`。
-- 云台/底盘：更新 `com_port`, CAN IDs；若协议不同需同步修改 `io/gimbal.*` / `io/cboard.*`。
+- 云台/底盘：更新 `com_port`（云台）和 `cboard_com_port`（CBoard 串口）；若协议不同需同步修改 `io/gimbal.*` / `io/cboard.*`。
 - 模型：替换 `yolo*_model_path`，若类别数变动需修改后处理与 `classifier`。
 - 任务裁剪：若仅自瞄，移除 BUFF 参数与模块；若仅 BUFF，精简 `auto_aim` 相关配置。
 - 性能：根据算力将 `device` 设为 `GPU` / `CPU` / `"AUTO:NPU,CPU"`；使用更小输入尺寸或 int8 量化模型（如 `yolo11_buff_int8.xml`）。
