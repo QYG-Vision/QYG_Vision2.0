@@ -40,6 +40,7 @@ find_package(ament_cmake QUIET)
 find_package(rclcpp QUIET)
 find_package(geometry_msgs QUIET)
 find_package(sensor_msgs QUIET)
+find_package(visualization_msgs QUIET)
 
 add_subdirectory(tools)
 add_subdirectory(io)
@@ -154,6 +155,9 @@ target_link_libraries(gimbal_raw_debug ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io
 # add_executable(serial_debug tests/serial_debug.cpp)
 # target_link_libraries(serial_debug ${OpenCV_LIBS} fmt::fmt auto_aim tools io)
 
+add_executable(ekf_visual_experience_rerun tests/ekf_visual_experience_rerun.cpp)
+target_link_libraries(ekf_visual_experience_rerun ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
+
 # ROS2 测试目标依赖 io/ros2，需与 io/CMakeLists.txt 的 ROS2 条件保持一致
 if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
     # 编译 ROS2 通信测试
@@ -179,6 +183,18 @@ if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
 
     add_executable(protocol_ros_loop_test tests/protocol_ros_loop_test.cpp)
     target_link_libraries(protocol_ros_loop_test ${OpenCV_LIBS} fmt::fmt tools io)
+
+    if(visualization_msgs_FOUND)
+        add_executable(ekf_visual_experience tests/ekf_visual_experience.cpp)
+        target_link_libraries(ekf_visual_experience ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
+        ament_target_dependencies(
+            ekf_visual_experience
+            rclcpp
+            geometry_msgs
+            visualization_msgs)
+    else()
+        message(STATUS "visualization_msgs not found, skipping ekf_visual_experience.")
+    endif()
 else()
     message(STATUS "ROS2 environment not found, skipping ROS2-related code.")
 endif()
