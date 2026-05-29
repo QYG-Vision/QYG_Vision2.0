@@ -34,6 +34,20 @@ assets/*.xml
 buff_layout.xml
 mpc_layout.xml
 
+# Required runtime assets tracked with Git LFS.
+!assets/best2-sim.onnx
+!assets/tiny_resnet.onnx
+!assets/yolo11.bin
+!assets/yolo11.xml
+!assets/yolo11_buff_int8.bin
+!assets/yolo11_buff_int8.xml
+!assets/yolov5.bin
+!assets/yolov5.xml
+!assets/yolov8.bin
+!assets/yolov8.xml
+!buff_layout.xml
+!mpc_layout.xml
+
 # Large datasets, recordings, and runtime outputs
 data/
 dataset/
@@ -74,3 +88,8 @@ outputs/
 *.p12
 *.crt
 *.token
+
+# Local Python tooling
+.venv*/
+__pycache__/
+*.pyc
