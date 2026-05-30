@@ -123,6 +123,8 @@ void HikRobot::capture_start()
   set_enum_value("TriggerMode", MV_TRIGGER_MODE_OFF);
   set_float_value("ExposureTime", exposure_us_);
   set_float_value("Gain", gain_);
+  log_float_value("ExposureTime");
+  log_float_value("Gain");
   MV_CC_SetFrameRate(handle_, 150);
 
   ret = MV_CC_StartGrabbing(handle_);
@@ -245,6 +247,8 @@ void HikRobot::capture_start_GigE()
   set_enum_value("TriggerMode", MV_TRIGGER_MODE_OFF);
   set_float_value("ExposureTime", exposure_us_);
   set_float_value("Gain", gain_);
+  log_float_value("ExposureTime");
+  log_float_value("Gain");
   MV_CC_SetFrameRate(handle_, 150);
 
   ret = MV_CC_StartGrabbing(handle_);
@@ -361,6 +365,20 @@ void HikRobot::set_float_value(const std::string & name, double value)
     tools::logger()->warn("MV_CC_SetFloatValue(\"{}\", {}) failed: {:#x}", name, value, ret);
     return;
   }
+}
+
+void HikRobot::log_float_value(const std::string & name) const
+{
+  MVCC_FLOATVALUE value;
+  const auto ret = MV_CC_GetFloatValue(handle_, name.c_str(), &value);
+  if (ret != MV_OK) {
+    tools::logger()->warn("MV_CC_GetFloatValue(\"{}\") failed: {:#x}", name, ret);
+    return;
+  }
+
+  tools::logger()->info(
+    "[HikRobot] {} current:{:.3f} range:[{:.3f}, {:.3f}]",
+    name, value.fCurValue, value.fMin, value.fMax);
 }
 
 void HikRobot::set_enum_value(const std::string & name, unsigned int value)
