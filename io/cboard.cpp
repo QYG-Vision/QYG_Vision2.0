@@ -1,6 +1,8 @@
 #include "cboard.hpp"      // CBoard 类声明和协议包结构
 
 #include <algorithm>        // std::clamp，用于 pitch 发送前限幅
+#include <cmath>            // std::abs，用于检查四元数模长
+#include <cstring>          // std::memcpy，用于从字节流安全拷贝协议包
 #include <stdexcept>       // std::runtime_error，用于配置/串口初始化失败
 #include <thread>          // std::this_thread::sleep_for，用于串口重试间隔
 #include <unistd.h>        // usleep，用于串口打开后的短暂稳定等待
@@ -54,11 +56,17 @@ CBoard::CBoard(const std::string & config_path) // 构造函数：从配置文�
     throw std::runtime_error("Failed to open CBoard serial port: " + com_port_); // 打不开就停止启动
   }
 
+  rx_thread_ = std::thread(&CBoard::receive_loop, this);         // 打开串口后启动回传接收线程
+
   tools::logger()->info("[CBoard] PC protocol serial opened: {} @{}", com_port_, baudrate_); // 打印串口信息
 }
 
 CBoard::~CBoard() // 析构函数：释放串口资源
 {
+  rx_quit_.store(true, std::memory_order_relaxed); // 通知接收线程停止
+  if (rx_thread_.joinable()) {                     // 如果接收线程已经启动
+    rx_thread_.join();                             // 等待线程安全退出
+  }
   if (serial_.isOpen()) { // 如果串口还打开着
     serial_.close();      // 关闭串口
   }
@@ -74,14 +82,39 @@ std::string CBoard::enemy_color_string() const // 获取敌方颜色字符串
   return enemy_color() == EnemyColor::red ? "red" : "blue"; // 转成 tracker 需要的字符串
 }
 
-Eigen::Quaterniond CBoard::imu_at(std::chrono::steady_clock::time_point) // 兼容旧的 IMU 查询接口
+Eigen::Quaterniond CBoard::imu_at(std::chrono::steady_clock::time_point timestamp) // 按图像时间戳查询 IMU
 {
-  static bool warned = false; // 只提示一次，避免刷日志
-  if (!warned) {              // 第一次调用时提示当前协议没有 IMU 回传
-    tools::logger()->warn("[CBoard] PC protocol has no IMU feedback; using identity quaternion."); // 说明兜底行为
-    warned = true;            // 标记已经提示过
+  std::lock_guard<std::mutex> lock(imu_mutex_); // 读取缓存时加锁，避免和接收线程同时修改
+
+  if (imu_buffer_.empty()) { // 如果还没有收到任何四元数
+    static bool warned = false; // 只提示一次，避免刷日志
+    if (!warned) {              // 第一次调用时提示当前还没有 IMU 回传
+      tools::logger()->warn("[CBoard] no IMU feedback received yet; using identity quaternion."); // 说明兜底行为
+      warned = true;            // 标记已经提示过
+    }
+    return Eigen::Quaterniond::Identity(); // 没有数据时返回单位四元数，保证上层不阻塞
   }
-  return Eigen::Quaterniond::Identity(); // 返回单位四元数，保证上层不阻塞
+
+  if (imu_buffer_.size() == 1 || timestamp <= imu_buffer_.front().timestamp) { // 缓存不足或请求时间早于缓存
+    return imu_buffer_.front().q; // 返回最早一帧作为兜底
+  }
+
+  if (timestamp >= imu_buffer_.back().timestamp) { // 请求时间晚于最新 IMU
+    return imu_buffer_.back().q; // 返回最新一帧作为兜底
+  }
+
+  for (size_t i = 1; i < imu_buffer_.size(); ++i) { // 查找时间戳前后两帧
+    if (imu_buffer_[i].timestamp >= timestamp) {    // 找到第一帧不早于请求时间的 IMU
+      const auto & data_a = imu_buffer_[i - 1];     // 请求时间之前的 IMU
+      const auto & data_b = imu_buffer_[i];         // 请求时间之后的 IMU
+      std::chrono::duration<double> t_ab = data_b.timestamp - data_a.timestamp; // 两帧间隔
+      std::chrono::duration<double> t_ac = timestamp - data_a.timestamp;        // 请求点偏移
+      double k = t_ab.count() > 1e-9 ? t_ac.count() / t_ab.count() : 0.0;       // 插值比例，避免除零
+      return data_a.q.slerp(k, data_b.q).normalized(); // 四元数球面插值，保持旋转连续
+    }
+  }
+
+  return imu_buffer_.back().q; // 理论上走不到这里，保底返回最新值
 }
 
 void CBoard::send(Command command) const // 将上层控制命令打成协议包并发送
@@ -158,6 +191,94 @@ bool CBoard::reconnect() // 打开串口；失败时重试
   }
 
   return false; // 多次重试仍失败
+}
+
+void CBoard::receive_loop() // 串口接收线程：只负责接收并解析 IMU 四元数
+{
+  while (!rx_quit_.load(std::memory_order_relaxed)) {          // 未收到退出信号就持续运行
+    try {                                                      // 串口读取可能抛异常
+      std::vector<uint8_t> bytes;                              // 临时保存本轮读到的字节
+      {
+        std::lock_guard<std::mutex> lock(serial_mutex_);       // 和 send() 共用串口对象，读写前加锁
+        if (serial_.isOpen()) {                                // 串口打开时才读取
+          const size_t available = serial_.available();        // 查询当前可读字节数
+          if (available > 0) {                                 // 有数据才真正 read，避免长时间阻塞发送
+            bytes.resize(available);                           // 按可读长度分配缓存
+            const size_t read_size = serial_.read(bytes.data(), bytes.size()); // 读出当前可读数据
+            bytes.resize(read_size);                           // read 可能少于 requested，按实际长度截断
+          }
+        }
+      }
+
+      if (!bytes.empty()) {                                    // 本轮确实读到了数据
+        rx_buffer_.insert(rx_buffer_.end(), bytes.begin(), bytes.end()); // 追加到流式缓存
+        parse_rx_buffer();                                     // 尝试从缓存里解析完整协议包
+      } else {                                                 // 没有数据时不要空转
+        std::this_thread::sleep_for(std::chrono::milliseconds(2)); // 短暂休眠降低 CPU 占用
+      }
+    } catch (const std::exception & e) {                       // 捕获串口读取异常
+      tools::logger()->warn("[CBoard] serial receive failed: {}", e.what()); // 打印异常
+      std::this_thread::sleep_for(std::chrono::milliseconds(20)); // 异常后稍微等一下再试
+    }
+  }
+}
+
+void CBoard::parse_rx_buffer() // 解析串口流中的 IMU 回传包
+{
+  constexpr size_t PACKET_SIZE = sizeof(ImuFeedbackPacket);    // IMU 回传包固定 20 字节
+  constexpr uint8_t HEADER[2] = {'i', 'm'};                    // IMU 回传包帧头
+
+  while (rx_buffer_.size() >= PACKET_SIZE) {                   // 缓存里至少有一个完整包长度才解析
+    auto header_it = std::search(                              // 在缓存里搜索帧头 'i''m'
+      rx_buffer_.begin(), rx_buffer_.end(),                    // 搜索范围：整个接收缓存
+      std::begin(HEADER), std::end(HEADER));                   // 模板帧头
+
+    if (header_it == rx_buffer_.end()) {                       // 如果没有找到帧头
+      rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.end() - 1); // 保留最后 1 字节，防止半个帧头被丢
+      return;                                                  // 等待后续字节
+    }
+
+    rx_buffer_.erase(rx_buffer_.begin(), header_it);           // 丢弃帧头之前的杂散字节
+    if (rx_buffer_.size() < PACKET_SIZE) return;               // 找到帧头但包还不完整，等待下次读取
+
+    ImuFeedbackPacket packet;                                  // 创建协议包对象
+    std::memcpy(&packet, rx_buffer_.data(), PACKET_SIZE);      // 从字节缓存复制出完整包
+
+    const auto crc = modbus_crc16(                             // 计算收到数据的 CRC
+      reinterpret_cast<const uint8_t *>(&packet),              // 将包视为连续字节
+      sizeof(packet) - sizeof(packet.crc16));                  // CRC 不包含最后两个 CRC 字节
+
+    if (crc != packet.crc16) {                                 // CRC 不一致说明包损坏或误同步
+      rx_buffer_.erase(rx_buffer_.begin());                    // 丢掉一个字节，继续寻找下一个可能帧头
+      continue;                                                // 继续解析缓存
+    }
+
+    Eigen::Quaterniond q(packet.qw, packet.qx, packet.qy, packet.qz); // 按 w,x,y,z 构造四元数
+    const double norm_error = std::abs(q.squaredNorm() - 1.0); // 检查四元数模长是否接近 1
+    if (norm_error > 1e-2) {                                   // 模长偏差过大说明数据不可信
+      const double qw = packet.qw;                              // packed 字段先复制出来，避免引用未对齐字段
+      const double qx = packet.qx;                              // packed 字段先复制出来，避免引用未对齐字段
+      const double qy = packet.qy;                              // packed 字段先复制出来，避免引用未对齐字段
+      const double qz = packet.qz;                              // packed 字段先复制出来，避免引用未对齐字段
+      tools::logger()->warn(                                  // 打印一次异常四元数内容
+        "[CBoard] invalid IMU quaternion: {:.4f} {:.4f} {:.4f} {:.4f}",
+        qw, qx, qy, qz);
+      rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + PACKET_SIZE); // 丢弃该坏包
+      continue;                                                // 继续尝试解析后续数据
+    }
+
+    push_imu(q.normalized(), std::chrono::steady_clock::now()); // 使用视觉电脑接收时刻作为时间戳
+    rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + PACKET_SIZE); // 移除已解析的数据
+  }
+}
+
+void CBoard::push_imu(const Eigen::Quaterniond & q, std::chrono::steady_clock::time_point timestamp)
+{
+  std::lock_guard<std::mutex> lock(imu_mutex_);                // 写缓存时加锁
+  imu_buffer_.push_back({q, timestamp});                       // 写入最新四元数
+  while (imu_buffer_.size() > imu_buffer_max_size_) {          // 超过缓存上限时
+    imu_buffer_.pop_front();                                   // 丢掉最旧数据
+  }
 }
 
 }  // namespace io
