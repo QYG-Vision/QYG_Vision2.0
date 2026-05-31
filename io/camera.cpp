@@ -4,6 +4,7 @@
 
 #include "hikrobot/hikrobot.hpp"
 #include "mindvision/mindvision.hpp"
+#include "tools/logger.hpp"
 #include "tools/yaml.hpp"
 
 namespace io
@@ -17,17 +18,26 @@ Camera::Camera(const std::string & config_path)
   if (camera_name == "mindvision") {
     auto gamma = tools::read<double>(yaml, "gamma");
     auto vid_pid = tools::read<std::string>(yaml, "vid_pid");
+    tools::logger()->info(
+      "[Camera] config:{} camera:{} exposure_ms:{:.3f} gamma:{:.3f}",
+      config_path, camera_name, exposure_ms, gamma);
     camera_ = std::make_unique<MindVision>(exposure_ms, gamma, vid_pid);
   }
 
   else if (camera_name == "hikrobot") {
     auto gain = tools::read<double>(yaml, "gain");
     auto vid_pid = tools::read<std::string>(yaml, "vid_pid");
+    tools::logger()->info(
+      "[Camera] config:{} camera:{} exposure_ms:{:.3f} gain:{:.3f}",
+      config_path, camera_name, exposure_ms, gain);
     camera_ = std::make_unique<HikRobot>(exposure_ms, gain, vid_pid);
   }
 
   else if(camera_name == "hikrobot_gige") {
     auto gain = tools::read<double>(yaml, "gain");
+    tools::logger()->info(
+      "[Camera] config:{} camera:{} exposure_ms:{:.3f} gain:{:.3f}",
+      config_path, camera_name, exposure_ms, gain);
     camera_ = std::make_unique<HikRobot>(exposure_ms, gain);
   }
 
