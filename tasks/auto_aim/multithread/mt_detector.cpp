@@ -58,7 +58,9 @@ void MultiThreadDetector::push(cv::Mat img, std::chrono::steady_clock::time_poin
   ov::Tensor input_tensor(ov::element::u8, {1, 640, 640, 3}, input.data);
 
   infer_request.set_input_tensor(input_tensor);
-  infer_request.start_async();
+  // Keep inference inside this worker thread so OpenVINO never reads from
+  // the local input buffer after it has gone out of scope.
+  infer_request.infer();
   queue_.push({img.clone(), t, std::move(infer_request)});
 }
 
