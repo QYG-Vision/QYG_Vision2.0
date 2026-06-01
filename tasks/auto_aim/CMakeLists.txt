@@ -9,6 +9,7 @@ add_subdirectory(planner/tinympc)
 add_library(auto_aim OBJECT 
     armor.cpp
     classifier.cpp 
+    debug_overlay.cpp
     detector.cpp
     solver.cpp
     aimer.cpp

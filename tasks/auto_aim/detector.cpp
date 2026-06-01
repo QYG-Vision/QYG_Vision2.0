@@ -5,6 +5,7 @@
 
 #include <filesystem>
 
+#include "debug_overlay.hpp"
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
 
@@ -356,13 +357,32 @@ void Detector::show_result(
   const std::list<Armor> & armors, int frame_count) const
 {
   auto detection = bgr_img.clone();
-  tools::draw_text(detection, fmt::format("[{}]", frame_count), {10, 30}, {255, 255, 255});
+  tools::draw_text(
+    detection,
+    fmt::format("Frame:{} Armors:{} Lightbars:{}", frame_count, armors.size(), lightbars.size()),
+    {10, 35}, {255, 255, 255}, 1.2, 3);
+
+  const auto overlay = get_detection_overlay_data();
+  if (overlay.valid) {
+    tools::draw_text(
+      detection,
+      fmt::format(
+        "CMD C:{} F:{} Yaw:{:.1f}deg Pitch:{:.1f}deg", overlay.control, overlay.fire,
+        overlay.yaw_deg, overlay.pitch_deg),
+      {10, 75}, {0, 220, 255}, 1.05, 3);
+    tools::draw_text(
+      detection,
+      fmt::format(
+        "FPS:{:.1f} Detect:{:.1f}ms Targets:{}", overlay.fps, overlay.detect_ms,
+        overlay.target_count),
+      {10, 110}, {0, 220, 255}, 1.0, 2);
+  }
 
   for (const auto & lightbar : lightbars) {
     auto info = fmt::format(
       "{:.1f} {:.1f} {:.1f} {}", lightbar.angle_error * 57.3, lightbar.ratio, lightbar.length,
       COLORS[lightbar.color]);
-    tools::draw_text(detection, info, lightbar.top, {0, 255, 255});
+    tools::draw_text(detection, info, lightbar.top, {0, 255, 255}, 0.8, 2);
     tools::draw_points(detection, lightbar.points, {0, 255, 255}, 3);
   }
 
@@ -372,7 +392,7 @@ void Detector::show_result(
       armor.rectangular_error * 57.3, armor.confidence, ARMOR_NAMES[armor.name],
       ARMOR_TYPES[armor.type]);
     tools::draw_points(detection, armor.points, {0, 255, 0});
-    tools::draw_text(detection, info, armor.left.bottom, {0, 255, 0});
+    tools::draw_text(detection, info, armor.left.bottom, {0, 255, 0}, 0.8, 2);
   }
 
   cv::Mat binary_img2;
