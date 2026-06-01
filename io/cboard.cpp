@@ -3,6 +3,8 @@
 #include <algorithm>        // std::clamp，用于 pitch 发送前限幅
 #include <cmath>            // std::abs，用于检查四元数模长
 #include <cstring>          // std::memcpy，用于从字节流安全拷贝协议包
+#include <iomanip>          // std::setw/std::setfill，用于十六进制打印
+#include <sstream>          // std::ostringstream，用于拼接发送字节日志
 #include <stdexcept>       // std::runtime_error，用于配置/串口初始化失败
 #include <thread>          // std::this_thread::sleep_for，用于串口重试间隔
 #include <unistd.h>        // usleep，用于串口打开后的短暂稳定等待
@@ -12,6 +14,20 @@
 
 namespace io
 {
+namespace
+{
+std::string to_hex_string(const uint8_t * data, size_t size)
+{
+  std::ostringstream stream;
+  stream << std::hex << std::uppercase << std::setfill('0');
+  for (size_t i = 0; i < size; ++i) {
+    if (i != 0) stream << ' ';
+    stream << std::setw(2) << static_cast<int>(data[i]);
+  }
+  return stream.str();
+}
+}  // namespace
+
 CBoard::CBoard(const std::string & config_path) // 构造函数：从配置文件初始化 CBoard 串口
 : bullet_speed(23.0),                           // 默认弹速；协议当前没有弹速回传
   mode(Mode::auto_aim),                         // 默认模式；协议当前没有模式回传
@@ -140,6 +156,15 @@ void CBoard::send(Command command) const // 将上层控制命令打成协议包
       tools::logger()->warn("[CBoard] serial is not open when sending."); // 串口未打开时记录日志
       return;                                                  // 串口未打开则放弃本帧
     }
+
+    const auto * packet_bytes = reinterpret_cast<const uint8_t *>(&packet);
+    const float packet_yaw = packet.yaw;
+    const float packet_pitch = packet.pitch;
+    tools::logger()->info(
+      "[CBoard][TX] mode={}, yaw={:.6f}, pitch={:.6f}, target_id={}, target_valid={}, bytes={}",
+      static_cast<int>(packet.mode), packet_yaw, packet_pitch, static_cast<int>(packet.target_id),
+      static_cast<int>(packet.target_valid), to_hex_string(packet_bytes, sizeof(packet)));
+
     serial_.write(reinterpret_cast<const uint8_t *>(&packet), sizeof(packet)); // 写出完整 15 字节包
   } catch (const std::exception & e) {                         // 捕获串口库异常
     tools::logger()->warn("[CBoard] serial write failed: {}", e.what()); // 打印失败原因
