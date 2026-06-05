@@ -52,9 +52,11 @@ Eigen::Matrix3d Solver::R_gimbal2world() const { return R_gimbal2world_; }
 
 void Solver::set_R_gimbal2world(const Eigen::Quaterniond & q)
 {
-  // IMU reports orientation as quaternion; convert it to rotation matrix representation.
+  // IMU每帧给出姿态四元数q，这里先转成R_imubody2imuabs（同一旋转的矩阵表示）。
   Eigen::Matrix3d R_imubody2imuabs = q.toRotationMatrix();
-  // Align IMU body axes with gimbal axes using fixed installation extrinsic.
+  // 再用固定安装外参R_gimbal2imubody做轴对齐，得到当前帧R_gimbal2world。
+  // 直观例子：敌人静止、云台右转30度/秒时，若不做这步，观测会在云台系里“向左漂”；
+  // 做完这步再转到world系后，这部分由云台自转引入的假运动会被抵消。
   R_gimbal2world_ = R_gimbal2imubody_.transpose() * R_imubody2imuabs * R_gimbal2imubody_;
 }
 
@@ -197,7 +199,9 @@ void Solver::solve(Armor & armor) const
 
   Eigen::Vector3d xyz_in_camera;
   cv::cv2eigen(tvec, xyz_in_camera);
-  // Position chain: camera -> gimbal (rotation + translation), then gimbal -> world (rotation).
+  // 坐标链：camera -> gimbal（旋转+平移）-> world（旋转）。
+  // 生动理解：像“稳像”先扣掉机体转动。敌人静止、云台右转30度/秒时，
+  // 在gimbal系看目标会持续左移；在world系该漂移被扣掉，目标坐标近似静止。
   armor.xyz_in_gimbal = R_camera2gimbal_ * xyz_in_camera + t_camera2gimbal_;
   armor.xyz_in_world = R_gimbal2world_ * armor.xyz_in_gimbal;
 
@@ -292,6 +296,8 @@ double Solver::oupost_reprojection_error(Armor armor, const double & pitch)
 
   Eigen::Vector3d xyz_in_camera;
   cv::cv2eigen(tvec, xyz_in_camera);
+  // 与主链路一致：camera -> gimbal（旋转+平移）-> world（旋转）。
+  // 这样这里的重投影误差评估也基于“扣掉云台自转后”的world观测。
   armor.xyz_in_gimbal = R_camera2gimbal_ * xyz_in_camera + t_camera2gimbal_;
   armor.xyz_in_world = R_gimbal2world_ * armor.xyz_in_gimbal;
 
