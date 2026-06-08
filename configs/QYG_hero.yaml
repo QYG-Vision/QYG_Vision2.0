@@ -64,7 +64,7 @@ auto_fire: true # 是否由自瞄控制射击
 #####-----camera参数-----#####
 camera_name: "hikrobot_gige"
 exposure_ms: 1
-gain: 20
+gain: 15
 
 #  1  0  0
 #  0  1  0

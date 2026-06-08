@@ -1,5 +1,8 @@
 #include "gimbal.hpp"
 
+#include <iomanip>
+#include <sstream>
+
 #include "tools/crc.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -7,6 +10,20 @@
 
 namespace io
 {
+namespace
+{
+std::string to_hex_string(const uint8_t * data, size_t size)
+{
+  std::ostringstream stream;
+  stream << std::hex << std::uppercase << std::setfill('0');
+  for (size_t i = 0; i < size; ++i) {
+    if (i != 0) stream << ' ';
+    stream << std::setw(2) << static_cast<int>(data[i]);
+  }
+  return stream.str();
+}
+}  // namespace
+
 Gimbal::Gimbal(const std::string & config_path)
 {
   auto yaml = tools::load(config_path);
@@ -98,6 +115,12 @@ void Gimbal::send(io::VisionToGimbal VisionToGimbal)
     reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_) - sizeof(tx_data_.crc16));
 
   try {
+    const auto * tx_bytes = reinterpret_cast<const uint8_t *>(&tx_data_);
+    const float tx_yaw = tx_data_.yaw;
+    const float tx_pitch = tx_data_.pitch;
+    tools::logger()->info(
+      "[Gimbal][TX] mode={}, yaw={:.6f}, pitch={:.6f}, bytes={}", static_cast<int>(tx_data_.mode),
+      tx_yaw, tx_pitch, to_hex_string(tx_bytes, sizeof(tx_data_)));
     serial_.write(reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_));
   } catch (const std::exception & e) {
     tools::logger()->warn("[Gimbal] Failed to write serial: {}", e.what());
@@ -119,6 +142,12 @@ void Gimbal::send(
     reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_) - sizeof(tx_data_.crc16));
 
   try {
+    const auto * tx_bytes = reinterpret_cast<const uint8_t *>(&tx_data_);
+    const float tx_yaw = tx_data_.yaw;
+    const float tx_pitch = tx_data_.pitch;
+    tools::logger()->info(
+      "[Gimbal][TX] mode={}, yaw={:.6f}, pitch={:.6f}, bytes={}", static_cast<int>(tx_data_.mode),
+      tx_yaw, tx_pitch, to_hex_string(tx_bytes, sizeof(tx_data_)));
     serial_.write(reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_));
   } catch (const std::exception & e) {
     tools::logger()->warn("[Gimbal] Failed to write serial: {}", e.what());

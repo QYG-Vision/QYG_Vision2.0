@@ -133,6 +133,41 @@ Eigen::Quaterniond CBoard::imu_at(std::chrono::steady_clock::time_point timestam
   return imu_buffer_.back().q; // 理论上走不到这里，保底返回最新值
 }
 
+double CBoard::yaw_at(std::chrono::steady_clock::time_point timestamp) // 按图像时间戳查询下板 yaw
+{
+  std::lock_guard<std::mutex> lock(imu_mutex_); // yaw 和 IMU 同帧缓存，使用同一把锁
+
+  if (imu_buffer_.empty()) { // 如果还没有收到任何回传
+    static bool warned = false; // 只提示一次，避免刷日志
+    if (!warned) {
+      tools::logger()->warn("[CBoard] no yaw feedback received yet; using 0.");
+      warned = true;
+    }
+    return 0.0;
+  }
+
+  if (imu_buffer_.size() == 1 || timestamp <= imu_buffer_.front().timestamp) {
+    return imu_buffer_.front().yaw;
+  }
+
+  if (timestamp >= imu_buffer_.back().timestamp) {
+    return imu_buffer_.back().yaw;
+  }
+
+  for (size_t i = 1; i < imu_buffer_.size(); ++i) {
+    if (imu_buffer_[i].timestamp >= timestamp) {
+      const auto & data_a = imu_buffer_[i - 1];
+      const auto & data_b = imu_buffer_[i];
+      std::chrono::duration<double> t_ab = data_b.timestamp - data_a.timestamp;
+      std::chrono::duration<double> t_ac = timestamp - data_a.timestamp;
+      const double k = t_ab.count() > 1e-9 ? t_ac.count() / t_ab.count() : 0.0;
+      return data_a.yaw + (data_b.yaw - data_a.yaw) * k;
+    }
+  }
+
+  return imu_buffer_.back().yaw;
+}
+
 void CBoard::send(Command command) const // 将上层控制命令打成协议包并发送
 {
   constexpr double DEG_TO_RAD = 3.14159265358979323846 / 180.0; // 角度转弧度系数
@@ -218,7 +253,7 @@ bool CBoard::reconnect() // 打开串口；失败时重试
   return false; // 多次重试仍失败
 }
 
-void CBoard::receive_loop() // 串口接收线程：只负责接收并解析 IMU 四元数
+void CBoard::receive_loop() // 串口接收线程：接收并解析 IMU 四元数 + 下板 yaw
 {
   while (!rx_quit_.load(std::memory_order_relaxed)) {          // 未收到退出信号就持续运行
     try {                                                      // 串口读取可能抛异常
@@ -248,9 +283,9 @@ void CBoard::receive_loop() // 串口接收线程：只负责接收并解析 IMU
   }
 }
 
-void CBoard::parse_rx_buffer() // 解析串口流中的 IMU 回传包
+void CBoard::parse_rx_buffer() // 解析串口流中的 IMU + yaw 回传包
 {
-  constexpr size_t PACKET_SIZE = sizeof(ImuFeedbackPacket);    // IMU 回传包固定 20 字节
+  constexpr size_t PACKET_SIZE = sizeof(ImuFeedbackPacket);    // IMU + yaw 回传包固定 24 字节
   constexpr uint8_t HEADER[2] = {'i', 'm'};                    // IMU 回传包帧头
 
   while (rx_buffer_.size() >= PACKET_SIZE) {                   // 缓存里至少有一个完整包长度才解析
@@ -292,15 +327,16 @@ void CBoard::parse_rx_buffer() // 解析串口流中的 IMU 回传包
       continue;                                                // 继续尝试解析后续数据
     }
 
-    push_imu(q.normalized(), std::chrono::steady_clock::now()); // 使用视觉电脑接收时刻作为时间戳
+    push_imu(q.normalized(), packet.yaw, std::chrono::steady_clock::now()); // 使用视觉电脑接收时刻作为时间戳
     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + PACKET_SIZE); // 移除已解析的数据
   }
 }
 
-void CBoard::push_imu(const Eigen::Quaterniond & q, std::chrono::steady_clock::time_point timestamp)
+void CBoard::push_imu(
+  const Eigen::Quaterniond & q, double yaw, std::chrono::steady_clock::time_point timestamp)
 {
   std::lock_guard<std::mutex> lock(imu_mutex_);                // 写缓存时加锁
-  imu_buffer_.push_back({q, timestamp});                       // 写入最新四元数
+  imu_buffer_.push_back({q, yaw, timestamp});                  // 写入最新四元数和 yaw
   while (imu_buffer_.size() > imu_buffer_max_size_) {          // 超过缓存上限时
     imu_buffer_.pop_front();                                   // 丢掉最旧数据
   }

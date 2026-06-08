@@ -56,6 +56,7 @@ public:
   ~CBoard();                                // 析构时关闭串口
 
   Eigen::Quaterniond imu_at(std::chrono::steady_clock::time_point timestamp); // 兼容旧 IMU 接口
+  double yaw_at(std::chrono::steady_clock::time_point timestamp);             // 查询同帧下板 yaw
 
   void send(Command command) const; // 按 pc_protocol_spec.md 组包并通过串口发送
 
@@ -80,20 +81,22 @@ private:
     float qx = 0.0f;                // byte 6-9：四元数 x，float32，小端
     float qy = 0.0f;                // byte 10-13：四元数 y，float32，小端
     float qz = 0.0f;                // byte 14-17：四元数 z，float32，小端
-    uint16_t crc16 = 0;             // byte 18-19：Modbus CRC16，小端
+    float yaw = 0.0f;               // byte 18-21：下板 yaw 角度，float32，小端
+    uint16_t crc16 = 0;             // byte 22-23：Modbus CRC16，小端
   };
 
-  static_assert(sizeof(ImuFeedbackPacket) == 20); // 回传四元数协议固定 20 字节
+  static_assert(sizeof(ImuFeedbackPacket) == 24); // 回传协议固定 24 字节
 
   struct IMUData
   {
     Eigen::Quaterniond q;                            // 接收到的云台/IMU 姿态四元数
+    double yaw = 0.0;                                // 同帧下板 yaw
     std::chrono::steady_clock::time_point timestamp; // 视觉电脑接收到该帧数据的时间
   };
 
   mutable serial::Serial serial_;      // 串口对象；send() 是 const，因此这里需要 mutable
   mutable std::mutex serial_mutex_;    // 防止多个线程同时写串口
-  std::thread rx_thread_;              // 后台串口接收线程，只解析四元数回传包
+  std::thread rx_thread_;              // 后台串口接收线程，解析四元数 + yaw 回传包
   std::atomic<bool> rx_quit_{false};   // 通知接收线程退出
   std::vector<uint8_t> rx_buffer_;     // 串口流式缓存，用于处理半包/粘包
 
@@ -109,8 +112,10 @@ private:
 
   bool reconnect(); // 打开或重新打开串口
   void receive_loop(); // 后台循环读取串口数据
-  void parse_rx_buffer(); // 从串口缓存中解析完整四元数包
-  void push_imu(const Eigen::Quaterniond & q, std::chrono::steady_clock::time_point timestamp); // 写入 IMU 缓存
+  void parse_rx_buffer(); // 从串口缓存中解析完整四元数 + yaw 包
+  void push_imu(
+    const Eigen::Quaterniond & q, double yaw,
+    std::chrono::steady_clock::time_point timestamp); // 写入 IMU 缓存
 };
 
 }  // namespace io

@@ -35,6 +35,7 @@ using namespace std::chrono_literals;
 
 int main(int argc, char * argv[])
 {
+  // 获取命令行参数
   cv::CommandLineParser cli(argc, argv, keys);
   auto config_path = cli.get<std::string>("@config-path");
   auto use_tradition = cli.get<bool>("tradition");
