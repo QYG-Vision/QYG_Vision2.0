@@ -46,6 +46,15 @@ decision_speed: 8 # rad/s
 high_speed_delay_time: 0.015 # s
 low_speed_delay_time: 0.015 # s
 
+#####-----planner参数(补)-----#####
+fire_thresh: 0.003   # 开火阈值(rad): 预测时刻的yaw/pitch误差范数小于该值才允许开火
+max_yaw_acc: 50      # yaw角加速度上限(rad/s^2): 越大跟随更激进，越小更平滑
+Q_yaw: [9e6, 0]      # yaw状态权重[角度误差, 角速度误差]: 第一项越大越“咬角度”
+R_yaw: [1]           # yaw控制权重: 越大越抑制大动作，越小响应更快
+max_pitch_acc: 100   # pitch角加速度上限(rad/s^2): 限制俯仰通道控制激烈程度
+Q_pitch: [9e6, 0]    # pitch状态权重[角度误差, 角速度误差]
+R_pitch: [1]         # pitch控制权重
+
 #####-----shooter参数-----#####
 first_tolerance: 3 # 近距离射击容差，degree
 second_tolerance: 2 # 远距离射击容差，degree
@@ -55,7 +64,7 @@ auto_fire: true # 是否由自瞄控制射击
 #####-----camera参数-----#####
 camera_name: "hikrobot_gige"
 exposure_ms: 1
-gain: 30
+gain: 20
 
 #  1  0  0
 #  0  1  0
@@ -77,7 +86,7 @@ t_camera2gimbal: [0.11741499878328482, 0.010442011579886511, 0.08176242640600857
 
 
 #####-----cboard参数-----#####
-cboard_com_port: "/dev/cboard"
+cboard_com_port: "/dev/ttyUSB0"
 cboard_baudrate: 921600
 
 
