@@ -17,6 +17,7 @@ public:
   Eigen::Matrix3d R_gimbal2world() const;
 
   void set_R_gimbal2world(const Eigen::Quaterniond & q);
+  void set_R_gimbal2world(const Eigen::Quaterniond & q, double feedback_yaw_deg);
 
   void solve(Armor & armor) const;
 

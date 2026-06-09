@@ -51,6 +51,26 @@ void Solver::set_R_gimbal2world(const Eigen::Quaterniond & q)
   R_gimbal2world_ = R_gimbal2imubody_.transpose() * R_imubody2imuabs * R_gimbal2imubody_;
 }
 
+void Solver::set_R_gimbal2world(const Eigen::Quaterniond & q, double feedback_yaw_deg)
+{
+  // 电控上传的四元数来自云台 IMU，其中 pitch 很准，但 yaw 会随时间漂移。
+  // 同一帧里电控还会上传一个由底盘 IMU + 编码器融合得到的云台 yaw，这个 yaw 已确认单位为 degree，
+  // 且比四元数解出来的 yaw 更准。因此这里显式进行“yaw 替换”：
+  // 1. 先按原流程把 IMU 四元数转换成云台坐标系到世界坐标系的旋转矩阵，不能在串口层直接替换，
+  //    因为只有 Solver 知道 R_gimbal2imubody_ 这个 IMU 安装外参。
+  // 2. 再把该旋转矩阵解成 yaw/pitch/roll，其中 pitch/roll 继续使用四元数提供的结果。
+  // 3. 丢弃四元数解算出的 yaw，改用电控单独反馈的 yaw，并将 degree 统一转换为 rad。
+  // 4. 最后重新合成 R_gimbal2world_，后续 PnP 坐标转换、跟踪和瞄准都使用这个融合后的姿态。
+  Eigen::Matrix3d R_imubody2imuabs = q.toRotationMatrix();
+  Eigen::Matrix3d R_gimbal2world_from_quat =
+    R_gimbal2imubody_.transpose() * R_imubody2imuabs * R_gimbal2imubody_;
+
+  Eigen::Vector3d ypr = tools::eulers(R_gimbal2world_from_quat, 2, 1, 0);
+  ypr[0] = tools::limit_rad(feedback_yaw_deg * CV_PI / 180.0);
+
+  R_gimbal2world_ = tools::rotation_matrix(ypr);
+}
+
 //solvePnP（获得姿态）
 void Solver::solve(Armor & armor) const
 {
