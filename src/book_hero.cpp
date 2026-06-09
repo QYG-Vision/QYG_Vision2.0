@@ -124,8 +124,9 @@ int main(int argc, char * argv[])
       }
 
       auto q = cboard.imu_at(timestamp);
+      auto yaw = cboard.yaw_at(timestamp);
       recorder.record(img, q, timestamp);
-      solver.set_R_gimbal2world(q);
+      solver.set_R_gimbal2world(q, yaw);
 
       auto detect_start = std::chrono::steady_clock::now();
       std::list<auto_aim::Armor> armors;
