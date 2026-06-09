@@ -14,19 +14,6 @@
 
 namespace io
 {
-namespace
-{
-std::string to_hex_string(const uint8_t * data, size_t size)
-{
-  std::ostringstream stream;
-  stream << std::hex << std::uppercase << std::setfill('0');
-  for (size_t i = 0; i < size; ++i) {
-    if (i != 0) stream << ' ';
-    stream << std::setw(2) << static_cast<int>(data[i]);
-  }
-  return stream.str();
-}
-}  // namespace
 
 CBoard::CBoard(const std::string & config_path) // 构造函数：从配置文件初始化 CBoard 串口
 : bullet_speed(23.0),                           // 默认弹速；协议当前没有弹速回传
@@ -192,13 +179,15 @@ void CBoard::send(Command command) const // 将上层控制命令打成协议包
       return;                                                  // 串口未打开则放弃本帧
     }
 
-    const auto * packet_bytes = reinterpret_cast<const uint8_t *>(&packet);
     const float packet_yaw = packet.yaw;
     const float packet_pitch = packet.pitch;
     tools::logger()->info(
-      "[CBoard][TX] mode={}, yaw={:.6f}, pitch={:.6f}, target_id={}, target_valid={}, bytes={}",
+      "[CBoard][TX] mode={}, yaw={:.6f}, pitch={:.6f}, target_id={}, target_valid={}",
       static_cast<int>(packet.mode), packet_yaw, packet_pitch, static_cast<int>(packet.target_id),
-      static_cast<int>(packet.target_valid), to_hex_string(packet_bytes, sizeof(packet)));
+      static_cast<int>(packet.target_valid));
+    tools::logger()->info(
+      "[CBoard][RX] recieved_data={}",latest_rx_summary()
+    );
 
     serial_.write(reinterpret_cast<const uint8_t *>(&packet), sizeof(packet)); // 写出完整 15 字节包
   } catch (const std::exception & e) {                         // 捕获串口库异常
@@ -330,6 +319,29 @@ void CBoard::parse_rx_buffer() // 解析串口流中的 IMU + yaw 回传包
     push_imu(q.normalized(), packet.yaw, std::chrono::steady_clock::now()); // 使用视觉电脑接收时刻作为时间戳
     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + PACKET_SIZE); // 移除已解析的数据
   }
+}
+
+std::string CBoard::latest_rx_summary() const
+{
+  std::lock_guard<std::mutex> lock(imu_mutex_);
+  if (imu_buffer_.empty()) {
+    return "RX none";
+  }
+
+  const auto latest = imu_buffer_.back();
+  const auto age_ms =
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - latest.timestamp)
+      .count();
+
+  std::ostringstream stream;
+  stream << std::fixed << std::setprecision(6)
+         << "RX qw=" << latest.q.w()
+         << ", qx=" << latest.q.x()
+         << ", qy=" << latest.q.y()
+         << ", qz=" << latest.q.z()
+         << ", yaw=" << latest.yaw
+         << ", age_ms=" << std::setprecision(1) << age_ms;
+  return stream.str();
 }
 
 void CBoard::push_imu(

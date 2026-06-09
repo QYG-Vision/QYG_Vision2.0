@@ -113,6 +113,7 @@ private:
   bool reconnect(); // 打开或重新打开串口
   void receive_loop(); // 后台循环读取串口数据
   void parse_rx_buffer(); // 从串口缓存中解析完整四元数 + yaw 包
+  std::string latest_rx_summary() const; // 获取最近一次接收数据的日志字符串
   void push_imu(
     const Eigen::Quaterniond & q, double yaw,
     std::chrono::steady_clock::time_point timestamp); // 写入 IMU 缓存
