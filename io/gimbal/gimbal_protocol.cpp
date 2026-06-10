@@ -116,9 +116,9 @@ SendFrame make_send_frame(
   frame.mode = control ? (fire ? 2 : 1) : 0;
   frame.yaw = encode_float(yaw, -M_PI, M_PI, 32);
   frame.pitch = encode_float(pitch, -M_PI, M_PI, 32);
-  frame.linear_x = encode_float(-linear_x, -1.0f, 1.0f, 32);
-  frame.linear_y = encode_float(-linear_y, -1.0f, 1.0f, 32);
-  frame.angular_z = encode_float(-angular_z, -1.0f, 1.0f, 32);
+  frame.linear_x = encode_float(linear_x, -1.0f, 1.0f, 32);
+  frame.linear_y = encode_float(linear_y, -1.0f, 1.0f, 32);
+  frame.angular_z = encode_float(angular_z, -1.0f, 1.0f, 32);
   frame.crc16 = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
   return frame;
 }

@@ -121,7 +121,7 @@ Eigen::Vector3d Gimbal::euler(std::chrono::steady_clock::time_point t)
 void Gimbal::send(bool control, bool fire, float yaw, float pitch, float linear_x, float linear_y, float angular_z)
 {
   auto frame = gimbal_protocol::make_send_frame(
-    control, fire, yaw, pitch, linear_x, linear_y, angular_z);
+    control, fire, yaw, pitch, linear_x, -linear_y, angular_z);
 
 
     // //5.14

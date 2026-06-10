@@ -181,6 +181,18 @@ if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
     add_executable(nav2aim_test tests/nav2aim_test.cpp)
     target_link_libraries(nav2aim_test ${OpenCV_LIBS} fmt::fmt tools io)
 
+    add_executable(gimbal_wave_test tests/gimbal_wave_test.cpp)
+    target_link_libraries(gimbal_wave_test ${OpenCV_LIBS} fmt::fmt tools io)
+    ament_target_dependencies(
+        gimbal_wave_test
+        rclcpp
+        geometry_msgs)
+
+    ament_target_dependencies(
+        QYG_sentry_debug
+        rclcpp
+        geometry_msgs)
+
     add_executable(protocol_ros_loop_test tests/protocol_ros_loop_test.cpp)
     target_link_libraries(protocol_ros_loop_test ${OpenCV_LIBS} fmt::fmt tools io)
 
