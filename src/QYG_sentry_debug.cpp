@@ -8,6 +8,7 @@
 #include "io/camera.hpp"
 #include "io/gimbal/gimbal.hpp"
 #include "io/ros2/aim2nav.hpp"
+#include "io/ros2/armor_tf_publisher.hpp"
 #include "io/ros2/nav2aim.hpp"
 #include "tasks/auto_aim/armor.hpp"
 #include "tasks/auto_aim/multithread/mt_detector.hpp"
@@ -76,6 +77,7 @@ int main(int argc, char * argv[])
   auto_aim::Tracker tracker(config_path, solver);
   auto_aim::Planner planner(config_path);
   auto debug_node = std::make_shared<rclcpp::Node>("qyg_sentry_debug_metrics");
+  io::ArmorTfPublisher armor_tf_publisher(debug_node);
   auto meas_xyz_g_pub =
     debug_node->create_publisher<geometry_msgs::msg::Vector3>("/debug/meas_xyz_g", 10);
   auto meas_xyz_w_pub =
@@ -360,6 +362,12 @@ int main(int argc, char * argv[])
       solver.set_R_gimbal2world(q);
 
       auto targets = tracker.track(armors, t);
+      int armor_tf_index = 0;
+      const auto armor_tf_stamp = debug_node->now();
+      for (const auto & armor : armors) {
+        armor_tf_publisher.publish(armor, armor_tf_stamp, armor_tf_index++);
+      }
+
       if (!targets.empty()) {
         target_queue.push(targets.front());
       } else {

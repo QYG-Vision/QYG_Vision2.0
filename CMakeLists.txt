@@ -40,6 +40,7 @@ find_package(ament_cmake QUIET)
 find_package(rclcpp QUIET)
 find_package(geometry_msgs QUIET)
 find_package(sensor_msgs QUIET)
+find_package(tf2_ros QUIET)
 find_package(visualization_msgs QUIET)
 
 add_subdirectory(tools)
@@ -193,8 +194,26 @@ if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
         rclcpp
         geometry_msgs)
 
+    if(tf2_ros_FOUND)
+        ament_target_dependencies(
+            QYG_sentry_debug
+            tf2_ros)
+    endif()
+
     add_executable(protocol_ros_loop_test tests/protocol_ros_loop_test.cpp)
     target_link_libraries(protocol_ros_loop_test ${OpenCV_LIBS} fmt::fmt tools io)
+
+    if(tf2_ros_FOUND)
+        add_executable(armor_tf_publisher_test tests/armor_tf_publisher_test.cpp)
+        target_link_libraries(armor_tf_publisher_test ${OpenCV_LIBS} fmt::fmt tools io auto_aim)
+        ament_target_dependencies(
+            armor_tf_publisher_test
+            rclcpp
+            geometry_msgs
+            tf2_ros)
+    else()
+        message(STATUS "tf2_ros not found, skipping armor_tf_publisher_test.")
+    endif()
 
     if(visualization_msgs_FOUND)
         add_executable(ekf_visual_experience tests/ekf_visual_experience.cpp)

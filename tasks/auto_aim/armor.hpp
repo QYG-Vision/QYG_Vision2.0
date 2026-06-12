@@ -100,6 +100,7 @@ struct Armor
 
   Eigen::Vector3d xyz_in_gimbal;  // 单位：m
   Eigen::Vector3d xyz_in_world;   // 单位：m
+  Eigen::Vector3d xyz_in_camera;  // 单位：m
   Eigen::Vector3d ypr_in_gimbal;  // 单位：rad
   Eigen::Vector3d ypr_in_world;   // 单位：rad
   Eigen::Vector3d ypd_in_world;   // 球坐标系
