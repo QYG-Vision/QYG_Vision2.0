@@ -1,0 +1,89 @@
+# enemy_color: "red"
+enemy_color: "blue"
+
+#####-----神经网络参数-----#####
+yolo_name: yolov5
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/yolov5.xml
+device: "AUTO:NPU"
+min_confidence: 0.8
+use_traditional: true
+
+#####-----ROI-----#####
+roi:
+  x: 420
+  y: 50
+  width: 600
+  height: 600
+use_roi: false
+
+#####-----Daedalus ROS2 仿真参数-----#####
+camera_name: "ros2"
+sim_bullet_speed: 25.0
+sim_yaw_cmd_offset_deg: 0.0
+sim_pitch_cmd_offset_deg: 0.0
+
+#####-----传统方法参数-----#####
+threshold: 150
+max_angle_error: 45
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25
+
+#####-----tracker参数-----#####
+min_detect_count: 5
+max_temp_lost_count: 25
+outpost_max_temp_lost_count: 75
+
+#####-----EKF参数-----#####
+ekf_v1: 3.0
+ekf_v2: 40.0
+ekf_v1_outpost: 10
+ekf_v2_outpost: 0.1
+ekf_r_yaw: 0.05
+ekf_r_pitch: 0.05
+ekf_r_distance: 0.5
+ekf_r_angle: 0.8
+
+#####-----planner-----#####
+yaw_offset: 0
+pitch_offset: 0
+comming_angle: 60
+leaving_angle: 20
+left_yaw_offset: -1
+right_yaw_offset: -0.6
+decision_speed: 10
+high_speed_delay_time: 0.026
+low_speed_delay_time: 0.030
+fire_thresh: 0.003
+max_yaw_acc: 50
+Q_yaw: [9e5, 0]
+R_yaw: [0.1]
+max_pitch_acc: 50
+Q_pitch: [9e5, 100]
+R_pitch: [1.0]
+
+#####-----shooter参数-----#####
+first_tolerance: 5
+second_tolerance: 2
+judge_distance: 3
+auto_fire: true
+
+#####-----decider参数-----#####
+mode: 1
+
+#####-----Daedalus 默认相机标定-----#####
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+camera_matrix: [1303.675, 0, 720, 0, 1303.675, 540, 0, 0, 1]
+distort_coeffs: [0, 0, 0, 0, 0]
+
+# 第一版仿真外参：Daedalus /camera_pose 是相对 /gimbal_pose 的 camera_link 平移，
+# 这里先采用相机坐标系到云台坐标系的常见 ROS optical-frame 对齐，后续需实测复核。
+R_camera2gimbal: [0, 0, 1, -1, 0, 0, 0, -1, 0]
+t_camera2gimbal: [0, 0, 0]

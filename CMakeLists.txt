@@ -42,6 +42,7 @@ find_package(geometry_msgs QUIET)
 find_package(sensor_msgs QUIET)
 find_package(tf2_ros QUIET)
 find_package(visualization_msgs QUIET)
+find_package(rm_interfaces QUIET)
 
 add_subdirectory(tools)
 add_subdirectory(io)
@@ -107,6 +108,8 @@ target_link_libraries(capture ${OpenCV_LIBS} fmt::fmt tools io)
 
 # ##################tests##################
 add_executable(auto_aim_test tests/auto_aim_test.cpp)
+add_executable(sim_gimbal_command_test tests/sim_gimbal_command_test.cpp)
+add_executable(sim_gimbal_pose_test tests/sim_gimbal_pose_test.cpp)
 # add_executable(auto_buff_test tests/auto_buff_test.cpp)
 # add_executable(camera_detect_test tests/camera_detect_test.cpp)
 # add_executable(camera_test tests/camera_test.cpp)
@@ -126,6 +129,7 @@ add_executable(auto_aim_test tests/auto_aim_test.cpp)
 
 
 target_link_libraries(auto_aim_test ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
+target_link_libraries(sim_gimbal_command_test fmt::fmt)
 # target_link_libraries(auto_buff_test ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_buff tools io)
 # target_link_libraries(camera_detect_test ${OpenCV_LIBS} fmt::fmt yaml-cpp tools auto_aim io)
 # target_link_libraries(camera_test ${OpenCV_LIBS} fmt::fmt tools io)
@@ -225,6 +229,19 @@ if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
             visualization_msgs)
     else()
         message(STATUS "visualization_msgs not found, skipping ekf_visual_experience.")
+    endif()
+
+    if(rm_interfaces_FOUND)
+        add_executable(QYG_sentry_sim src/QYG_sentry_sim.cpp)
+        target_link_libraries(QYG_sentry_sim ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim tools io)
+        ament_target_dependencies(
+            QYG_sentry_sim
+            rclcpp
+            geometry_msgs
+            sensor_msgs
+            rm_interfaces)
+    else()
+        message(STATUS "rm_interfaces not found, skipping QYG_sentry_sim.")
     endif()
 else()
     message(STATUS "ROS2 environment not found, skipping ROS2-related code.")
