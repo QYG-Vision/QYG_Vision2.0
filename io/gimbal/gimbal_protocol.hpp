@@ -13,6 +13,10 @@ namespace io::gimbal_protocol
 
 uint16_t crc16_x25(const uint8_t * data, size_t len);
 
+uint16_t pack_sentry_state(uint16_t status, GimbalMode mode);
+uint16_t sentry_status(uint16_t sentry_state);
+GimbalMode sentry_mode(uint16_t sentry_state);
+
 std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes);
 
 SendFrame make_send_frame(

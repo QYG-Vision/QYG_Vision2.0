@@ -10,8 +10,7 @@
     float yaw_angular = 0.0f;       // 偏航角速度：23-26
     float pitch_angular = 0.0f;     // 俯仰角速度：27-30
     float odom_x = 0.0f;            // 里程计：31-34
-    uint8_t chassis_state = 0;      // 状态：35
-    uint8_t mode = 0;               // 视觉模式：36
+    uint16_t sentry_state = 0;      // 状态+视觉模式：35-36，低2位为模式，高14位为状态
     float vyaw = 0.0f;              // 视觉yaw：37-40
     float vpitch = 0.0f;            // 视觉pitch：41-44
     float vroll = 0.0f;             // 视觉roll：45-48

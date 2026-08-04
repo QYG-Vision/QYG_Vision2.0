@@ -1,4 +1,5 @@
 #include "io/gimbal/gimbal.hpp"
+#include "io/gimbal/gimbal_protocol.hpp"
 #include "serial/serial.h"
 #include "tools/exiter.hpp"
 #include "tools/logger.hpp"
@@ -74,13 +75,13 @@ io::SendFrame make_send_frame(bool control, bool fire, float yaw, float pitch)
   return frame;
 }
 
-std::string mode_name(uint8_t mode)
+std::string mode_name(io::GimbalMode mode)
 {
   switch (mode) {
-    case 0x11: return "AUTO_AIM";
-    case 0x12: return "SMALL_BUFF";
-    case 0x13: return "BIG_BUFF";
-    default: return "IDLE/OTHER";
+    case io::GimbalMode::AUTO_AIM: return "AUTO_AIM";
+    case io::GimbalMode::SMALL_BUFF: return "SMALL_BUFF";
+    case io::GimbalMode::BIG_BUFF: return "BIG_BUFF";
+    default: return "IDLE";
   }
 }
 }  // namespace
@@ -162,7 +163,9 @@ int main(int argc, char * argv[])
       std::memcpy(&frame, rx_buffer.data(), frame_size);
       const auto crc_calc = crc16_x25(reinterpret_cast<uint8_t *>(&frame), frame_size - 2);
       const bool crc_ok = crc_calc == frame.crc16;
-      const auto mode = frame.mode;
+      const auto sentry_state = frame.sentry_state;
+      const auto mode = io::gimbal_protocol::sentry_mode(sentry_state);
+      const auto sentry_status = io::gimbal_protocol::sentry_status(sentry_state);
       const auto current_mode = frame.current_mode;
       const auto actual_vx = frame.actual_vx;
       const auto actual_vy = frame.actual_vy;
@@ -176,9 +179,9 @@ int main(int argc, char * argv[])
       const auto now = std::chrono::steady_clock::now();
       if (now - last_log >= 200ms) {
         tools::logger()->info(
-          "[GD RX] crc={} mode=0x{:02X}({}) current_mode=0x{:02X} vx={:.3f} vy={:.3f} wz={:.3f} imu_yaw={:.2f} imu_pitch={:.2f} vyaw={:.2f} vpitch={:.2f} vroll={:.2f} raw={}",
+          "[GD RX] crc={} sentry_state=0x{:04X} status=0x{:04X} mode={} current_mode=0x{:02X} vx={:.3f} vy={:.3f} wz={:.3f} imu_yaw={:.2f} imu_pitch={:.2f} vyaw={:.2f} vpitch={:.2f} vroll={:.2f} raw={}",
           crc_ok ? "OK" : "BAD",
-          mode, mode_name(mode),
+          sentry_state, sentry_status, mode_name(mode),
           current_mode,
           actual_vx, actual_vy, actual_wz,
           imu_yaw, imu_pitch,

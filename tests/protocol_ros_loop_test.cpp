@@ -82,6 +82,31 @@ int main(int argc, char ** argv)
     "Check the CRC16 final xor; X25 with final xor would produce 0x906E.");
   pass("CRC16 reference");
 
+  expect_equal_hex(
+    io::gimbal_protocol::pack_sentry_state(0x1234, io::GimbalMode::BIG_BUFF), 0x48D3,
+    "Sentry-state packing",
+    "14-bit status plus big-buff mode encodes to the documented wire value",
+    "Check that status uses bits 15:2 and mode uses bits 1:0.");
+  expect_equal_hex(
+    io::gimbal_protocol::sentry_status(0x48D3), 0x1234,
+    "Sentry-state unpacking",
+    "14-bit status is recovered from bits 15:2",
+    "Check the status mask and right shift.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(0x48D3) == io::GimbalMode::BIG_BUFF,
+    "Sentry-state unpacking",
+    "low two bits decode to big-buff mode",
+    "Check the mode mask and mode mapping.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(0x48D0) == io::GimbalMode::IDLE &&
+    io::gimbal_protocol::sentry_mode(0x48D1) == io::GimbalMode::AUTO_AIM &&
+    io::gimbal_protocol::sentry_mode(0x48D2) == io::GimbalMode::SMALL_BUFF &&
+    io::gimbal_protocol::sentry_mode(0x48D3) == io::GimbalMode::BIG_BUFF,
+    "Sentry-state mode mapping",
+    "all four low-bit encodings map to their documented visual modes",
+    "Check the 00/01/10/11 mode mapping.");
+  pass("Sentry-state helpers");
+
   io::ReceiveFrame rx{};
   rx.current_mode = 0x01;
   rx.actual_vx = 0.35f;
@@ -92,8 +117,7 @@ int main(int argc, char ** argv)
   rx.yaw_angular = 0.7f;
   rx.pitch_angular = -0.4f;
   rx.odom_x = 2.5f;
-  rx.chassis_state = 0x02;
-  rx.mode = 0x11;
+  rx.sentry_state = io::gimbal_protocol::pack_sentry_state(0x1234, io::GimbalMode::AUTO_AIM);
   rx.vyaw = 30.0f;
   rx.vpitch = -10.0f;
   rx.vroll = 1.5f;
@@ -109,6 +133,26 @@ int main(int argc, char ** argv)
     "GD frame parse",
     "valid GD frame should parse into GimbalState",
     "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16.");
+  expect_equal_hex(
+    parsed_state->sentry_state, 0x48D1,
+    "GD sentry-state parse",
+    "packed sentry state preserves all 16 wire bits",
+    "Check ReceiveFrame and GimbalState sentry_state assignment.");
+  expect_equal_hex(
+    io::gimbal_protocol::sentry_status(parsed_state->sentry_state), 0x1234,
+    "GD sentry-state parse",
+    "packed state exposes the original 14-bit sentry status",
+    "Check the sentry-status extraction path.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(parsed_state->sentry_state) == io::GimbalMode::AUTO_AIM,
+    "GD sentry-state parse",
+    "packed state exposes auto-aim mode from its low two bits",
+    "Check the sentry-mode extraction path.");
+  expect_true(
+    bytes[35] == 0xD1 && bytes[36] == 0x48,
+    "GD sentry-state wire order",
+    "0x48D1 is serialized as low byte 0xD1 followed by high byte 0x48",
+    "Check that the host and STM32 use the agreed little-endian uint16_t layout.");
   expect_near(
     parsed_state->actual_vx, rx.actual_vx, kEpsilon,
     "GD frame parse", "actual_vx copied from ReceiveFrame",

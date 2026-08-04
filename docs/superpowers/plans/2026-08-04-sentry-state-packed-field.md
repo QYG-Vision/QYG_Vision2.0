@@ -31,7 +31,7 @@
 - Produces: `uint16_t sentry_status(uint16_t sentry_state)`
 - Produces: `GimbalMode sentry_mode(uint16_t sentry_state)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```cpp
 expect_equal_hex(pack_sentry_state(0x1234, GimbalMode::BIG_BUFF), 0x48D3, ...);
@@ -39,13 +39,13 @@ expect_equal_hex(sentry_status(0x48D3), 0x1234, ...);
 expect_true(sentry_mode(0x48D3) == GimbalMode::BIG_BUFF, ...);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cmake --build /tmp/qyg_sentry_state_baseline --target protocol_ros_loop_test -j$(nproc)`
 
 Expected: compilation fails because the packed-state helper interface does not exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```cpp
 constexpr uint16_t kModeMask = 0x0003;
@@ -54,7 +54,7 @@ return static_cast<uint16_t>((status & kStatusMask) << 2) |
        static_cast<uint16_t>(mode);
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cmake --build /tmp/qyg_sentry_state_baseline --target protocol_ros_loop_test -j$(nproc) && /tmp/qyg_sentry_state_baseline/protocol_ros_loop_test`
 
@@ -75,7 +75,7 @@ Expected: packed-state helper checks and existing tests pass.
 - Consumes: packed-state helpers from Task 1.
 - Produces: `Gimbal::mode()` and `Aim2Nav::get_mode()` based on `sentry_state`.
 
-- [ ] **Step 1: Write the failing parsing/layout test**
+- [x] **Step 1: Write the failing parsing/layout test**
 
 ```cpp
 rx.sentry_state = pack_sentry_state(0x1234, GimbalMode::AUTO_AIM);
@@ -83,13 +83,13 @@ expect_equal_hex(parsed_state->sentry_state, 0x48D1, ...);
 expect_true(bytes[35] == 0xD1 && bytes[36] == 0x48, ...);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cmake --build /tmp/qyg_sentry_state_baseline --target protocol_ros_loop_test -j$(nproc)`
 
 Expected: compilation fails because `ReceiveFrame::sentry_state` is absent.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```cpp
 uint16_t sentry_state = 0;
@@ -99,7 +99,7 @@ mode_ = gimbal_protocol::sentry_mode(rx.sentry_state);
 Keep the existing size and offset assertions, changing the first relevant
 assertion to `offsetof(ReceiveFrame, sentry_state) == 35`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cmake --build /tmp/qyg_sentry_state_baseline --target protocol_ros_loop_test QYG_sentry_debug gimbal_raw_debug -j$(nproc) && /tmp/qyg_sentry_state_baseline/protocol_ros_loop_test`
 
@@ -110,7 +110,7 @@ Expected: all tests pass and both serial debug executables link.
 **Files:**
 - Create: `docs/superpowers/specs/2026-08-04-sentry-state-design.md`
 
-- [ ] **Step 1: Review the documentation**
+- [x] **Step 1: Review the documentation**
 
 Run: `rg -n "sentry_state|little-endian|0b00|0b01|0b10|0b11|51 bytes" docs/superpowers/specs/2026-08-04-sentry-state-design.md`
 

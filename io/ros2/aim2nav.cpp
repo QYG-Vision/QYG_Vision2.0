@@ -1,5 +1,7 @@
 #include "aim2nav.hpp"
 
+#include "io/gimbal/gimbal_protocol.hpp"
+
 namespace io
 {
 
@@ -67,7 +69,7 @@ void Aim2Nav::update_buffer(const GimbalState & state)
     state.vyaw * M_PI / 180.0
   );
   data.current_mode = state.current_mode;
-  data.mode = state.mode;
+  data.sentry_state = state.sentry_state;
   data.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
 
   data_buffer_.push_back(data);
@@ -89,13 +91,7 @@ io::GimbalMode Aim2Nav::get_mode()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   if (data_buffer_.empty()) return io::GimbalMode::IDLE;
-  uint8_t m = data_buffer_.back().mode;
-  switch (m) {
-    case 1: return io::GimbalMode::AUTO_AIM;
-    case 2: return io::GimbalMode::SMALL_BUFF;
-    case 3: return io::GimbalMode::BIG_BUFF;
-    default: return io::GimbalMode::IDLE;
-  }
+  return gimbal_protocol::sentry_mode(data_buffer_.back().sentry_state);
 }
 
 Eigen::Vector3d Aim2Nav::get_imu_euler()
@@ -153,7 +149,7 @@ std::optional<ChassisData> Aim2Nav::get_chassis_data(rclcpp::Time target_time)
   ChassisData interpolated;
   interpolated.imu_euler = d_before.imu_euler + ratio * (d_after.imu_euler - d_before.imu_euler);
   interpolated.current_mode = d_before.current_mode;
-  interpolated.mode = d_before.mode; 
+  interpolated.sentry_state = d_before.sentry_state;
   interpolated.stamp = target_time;
 
   return interpolated;

@@ -30,8 +30,7 @@ struct __attribute__((packed)) ReceiveFrame {
     float yaw_angular = 0.0f;       //底盘的yaw加速度   //24-27
     float pitch_angular = 0.0f;     //底盘的pitch加速度   //28-31
     float odom_x = 0.0f;           //里程计累计值   //32-35
-    uint8_t chassis_state = 0;      //底盘状态   //36
-    uint8_t mode = 0;          //视觉mode//37
+    uint16_t sentry_state = 0;      // 哨兵状态(高14位) + 视觉模式(低2位) //36-37
     float vyaw = 0.0f;       //云台的yaw角度       //38-41
     float vpitch = 0.0f;      //云台的pitch角度       //42-45
     float vroll = 0.0f;             //云台的roll角度       //46-49
@@ -39,6 +38,7 @@ struct __attribute__((packed)) ReceiveFrame {
 };
 
 static_assert(sizeof(ReceiveFrame) == 51, "ReceiveFrame must stay 51 bytes for EC GD protocol");
+static_assert(offsetof(ReceiveFrame, sentry_state) == 35, "GD sentry_state offset must stay byte 35");
 static_assert(offsetof(ReceiveFrame, vyaw) == 37, "GD vyaw offset must stay byte 37");
 static_assert(offsetof(ReceiveFrame, vpitch) == 41, "GD vpitch offset must stay byte 41");
 static_assert(offsetof(ReceiveFrame, vroll) == 45, "GD vroll offset must stay byte 45");
@@ -64,12 +64,12 @@ static_assert(offsetof(SendFrame, linear_y) == 15, "QY linear_y offset must stay
 static_assert(offsetof(SendFrame, angular_z) == 19, "QY angular_z offset must stay byte 19");
 static_assert(offsetof(SendFrame, crc16) == 23, "QY CRC16 offset must stay byte 23");
 
-enum class GimbalMode
+enum class GimbalMode : uint8_t
 {
-  IDLE,        
-  AUTO_AIM,    
-  SMALL_BUFF,  
-  BIG_BUFF     
+  IDLE = 0b00,
+  AUTO_AIM = 0b01,
+  SMALL_BUFF = 0b10,
+  BIG_BUFF = 0b11
 };
 
 struct GimbalState
@@ -84,8 +84,7 @@ struct GimbalState
   float yaw_angular = 0;
   float pitch_angular = 0;
   float odom_x = 0;
-  uint8_t chassis_state = 0;
-  uint8_t mode = 0;
+  uint16_t sentry_state = 0;
   float vyaw = 0;
   float vpitch = 0;
   float vroll = 0;

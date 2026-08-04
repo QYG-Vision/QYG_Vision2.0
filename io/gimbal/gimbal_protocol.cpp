@@ -70,8 +70,7 @@ GimbalState to_gimbal_state(const ReceiveFrame & frame)
   state.yaw_angular = frame.yaw_angular;
   state.pitch_angular = frame.pitch_angular;
   state.odom_x = frame.odom_x;
-  state.chassis_state = frame.chassis_state;
-  state.mode = frame.mode;
+  state.sentry_state = frame.sentry_state;
   state.vyaw = frame.vyaw;
   state.vpitch = frame.vpitch;
   state.vroll = frame.vroll;
@@ -89,6 +88,29 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
     crc = (crc >> 8) ^ kCrc16X25Table[(crc ^ *data++) & 0xFF];
   }
   return crc;
+}
+
+uint16_t pack_sentry_state(uint16_t status, GimbalMode mode)
+{
+  constexpr uint16_t kStatusMask = 0x3FFF;
+  constexpr uint16_t kModeMask = 0x0003;
+  return static_cast<uint16_t>((status & kStatusMask) << 2) |
+         (static_cast<uint16_t>(mode) & kModeMask);
+}
+
+uint16_t sentry_status(uint16_t sentry_state)
+{
+  return static_cast<uint16_t>(sentry_state >> 2);
+}
+
+GimbalMode sentry_mode(uint16_t sentry_state)
+{
+  switch (sentry_state & 0x0003) {
+    case 0b01: return GimbalMode::AUTO_AIM;
+    case 0b10: return GimbalMode::SMALL_BUFF;
+    case 0b11: return GimbalMode::BIG_BUFF;
+    default: return GimbalMode::IDLE;
+  }
 }
 
 std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes)
