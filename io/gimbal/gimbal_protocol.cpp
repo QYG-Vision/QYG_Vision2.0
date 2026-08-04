@@ -88,7 +88,7 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
   while (len--) {
     crc = (crc >> 8) ^ kCrc16X25Table[(crc ^ *data++) & 0xFF];
   }
-  return crc ^ 0xFFFF;
+  return crc;
 }
 
 std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes)

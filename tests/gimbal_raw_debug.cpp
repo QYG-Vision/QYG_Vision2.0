@@ -34,7 +34,7 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
       crc = (crc & 1) ? (crc >> 1) ^ 0x8408 : (crc >> 1);
     }
   }
-  return crc ^ 0xFFFF;
+  return crc;
 }
 
 uint32_t float_to_uint(float val, float min, float max, int bits)

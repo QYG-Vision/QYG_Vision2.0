@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <thread>
@@ -54,11 +55,32 @@ void expect_true(bool value, const char * stage, const char * check, const char 
   }
 }
 
+void expect_equal_hex(
+  uint16_t actual, uint16_t expected, const char * stage, const char * check, const char * hint)
+{
+  if (actual != expected) {
+    std::cerr << "\n[FAIL] " << stage << "\n"
+              << "  Check   : " << check << "\n"
+              << "  Actual  : 0x" << std::hex << std::uppercase << actual << "\n"
+              << "  Expected: 0x" << expected << std::dec << "\n"
+              << "  Hint    : " << hint << std::endl;
+    std::exit(1);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
+
+  const uint8_t crc_sample[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  expect_equal_hex(
+    io::gimbal_protocol::crc16_x25(crc_sample, sizeof(crc_sample)), 0x6F91,
+    "CRC16 reference",
+    "CRC16 uses RoboMaster referee-style no-final-xor result for 123456789",
+    "Check the CRC16 final xor; X25 with final xor would produce 0x906E.");
+  pass("CRC16 reference");
 
   io::ReceiveFrame rx{};
   rx.current_mode = 0x01;
@@ -86,7 +108,7 @@ int main(int argc, char ** argv)
     parsed_state.has_value(),
     "GD frame parse",
     "valid GD frame should parse into GimbalState",
-    "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16/X25.");
+    "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16.");
   expect_near(
     parsed_state->actual_vx, rx.actual_vx, kEpsilon,
     "GD frame parse", "actual_vx copied from ReceiveFrame",
@@ -118,7 +140,7 @@ int main(int argc, char ** argv)
     !io::gimbal_protocol::parse_receive_frame(bad_bytes).has_value(),
     "GD CRC guard",
     "corrupted GD frame should be rejected",
-    "Check CRC16/X25 implementation and CRC field offset; bad frames must not update vision state.");
+    "Check CRC16 implementation and CRC field offset; bad frames must not update vision state.");
   pass("GD parse and CRC guard");
 
   auto observer = std::make_shared<rclcpp::Node>("protocol_ros_loop_observer");
@@ -220,7 +242,7 @@ int main(int argc, char ** argv)
       reinterpret_cast<const uint8_t *>(&tx), sizeof(tx) - sizeof(tx.crc16)) == tx.crc16,
     "QY frame pack",
     "QY CRC matches packed frame",
-    "Check SendFrame size/offsets and CRC16/X25 range.");
+    "Check SendFrame size/offsets and CRC16 range.");
   expect_near(
     io::gimbal_protocol::decode_angle(tx.yaw), 0.25, kEpsilon,
     "QY frame pack", "yaw command encodes and decodes correctly",
