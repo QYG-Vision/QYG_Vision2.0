@@ -5,6 +5,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -46,16 +48,18 @@ static_assert(offsetof(ReceiveFrame, crc16) == 49, "GD CRC16 offset must stay by
 
 // --- 发送协议结构 (QY 帧头) ---
 struct __attribute__((packed)) SendFrame {
-    uint8_t header[2] = {'Q', 'Y'};
-    uint8_t mode = 0;
-    uint32_t yaw = 0;
-    uint32_t pitch = 0;
-    uint32_t linear_x = 0;
-    uint32_t linear_y = 0;
-    uint32_t angular_z = 0;
-    uint16_t crc16 = 0;
+    uint8_t header[2] = {'Q', 'Y'};  // offsets 0-1
+    uint8_t mode = 0;                // offset 2
+    float yaw = 0.0f;                // offsets 3-6, little-endian IEEE-754 float32
+    float pitch = 0.0f;              // offsets 7-10, little-endian IEEE-754 float32
+    float linear_x = 0.0f;           // offsets 11-14, little-endian IEEE-754 float32
+    float linear_y = 0.0f;           // offsets 15-18, little-endian IEEE-754 float32
+    float angular_z = 0.0f;          // offsets 19-22, little-endian IEEE-754 float32
+    uint16_t crc16 = 0;              // offsets 23-24
 };
 
+static_assert(sizeof(float) == 4, "QY protocol requires 32-bit float");
+static_assert(std::numeric_limits<float>::is_iec559, "QY protocol requires IEEE-754 float");
 static_assert(sizeof(SendFrame) == 25, "SendFrame must stay 25 bytes for EC QY protocol");
 static_assert(offsetof(SendFrame, yaw) == 3, "QY yaw offset must stay byte 3");
 static_assert(offsetof(SendFrame, pitch) == 7, "QY pitch offset must stay byte 7");

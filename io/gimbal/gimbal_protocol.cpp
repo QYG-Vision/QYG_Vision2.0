@@ -45,18 +45,6 @@ constexpr uint16_t kCrc16X25Table[256] = {
   0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 };
 
-uint32_t encode_float(float val, float min, float max, int bits)
-{
-  val = std::clamp(val, min, max);
-  const auto range = max - min;
-  return static_cast<uint32_t>((val - min) * static_cast<double>((1ULL << bits) - 1) / range);
-}
-
-float decode_float(uint32_t val, float min, float max, int bits)
-{
-  return static_cast<float>(val) * (max - min) / static_cast<float>((1ULL << bits) - 1) + min;
-}
-
 GimbalState to_gimbal_state(const ReceiveFrame & frame)
 {
   GimbalState state;
@@ -135,24 +123,22 @@ SendFrame make_send_frame(
   float linear_x, float linear_y, float angular_z)
 {
   SendFrame frame;
+  if (!std::isfinite(yaw) || !std::isfinite(pitch) ||
+      !std::isfinite(linear_x) || !std::isfinite(linear_y) || !std::isfinite(angular_z)) {
+    frame.crc16 = crc16_x25(
+      reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
+    return frame;
+  }
+
+  constexpr float kPi = static_cast<float>(M_PI);
   frame.mode = control ? (fire ? 2 : 1) : 0;
-  frame.yaw = encode_float(yaw, -M_PI, M_PI, 32);
-  frame.pitch = encode_float(pitch, -M_PI, M_PI, 32);
-  frame.linear_x = encode_float(-linear_x, -1.0f, 1.0f, 32);
-  frame.linear_y = encode_float(-linear_y, -1.0f, 1.0f, 32);
-  frame.angular_z = encode_float(-angular_z, -1.0f, 1.0f, 32);
+  frame.yaw = std::clamp(yaw, -kPi, kPi);
+  frame.pitch = std::clamp(pitch, -kPi, kPi);
+  frame.linear_x = -std::clamp(linear_x, -1.0f, 1.0f);
+  frame.linear_y = -std::clamp(linear_y, -1.0f, 1.0f);
+  frame.angular_z = -std::clamp(angular_z, -1.0f, 1.0f);
   frame.crc16 = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
   return frame;
-}
-
-float decode_angle(uint32_t value)
-{
-  return decode_float(value, -M_PI, M_PI, 32);
-}
-
-float decode_chassis_command(uint32_t value)
-{
-  return decode_float(value, -1.0f, 1.0f, 32);
 }
 
 }  // namespace io::gimbal_protocol

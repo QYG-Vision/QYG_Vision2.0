@@ -14,9 +14,9 @@ Version 2.0 将视觉通道与导航通道合并为单一通信链路，所有�
 
 **物理层**：UART + DMA（`HAL_UART_Transmit_DMA`）  
 **字节序**：小端（Little-endian）  
-**校验方式**：当前视觉工程固定使用 CRC16/X25
+**校验方式**：当前视觉工程使用初值 `0xFFFF`、反射查表、无最终异或的 CRC16；对 ASCII `123456789` 的结果为 `0x6F91`
 
-> 给视觉组的结论：本文描述的是哨兵 MiniPC 与电控之间的 **gimbal 串口协议**，不是旧 CBoard CAN 协议。仅做自瞄、不接雷达导航时，仍然按 25 字节 `QY` 下行帧发送；底盘速度原始值填 `0.0` 后再量化编码。
+> 给视觉组的结论：本文描述的是哨兵 MiniPC 与电控之间的 **gimbal 串口协议**，不是旧 CBoard CAN 协议。仅做自瞄、不接雷达导航时，仍然按 25 字节 `QY` 下行帧发送；三个底盘速度字段直接写入 `0.0f`。
 
 ---
 
@@ -120,11 +120,11 @@ _MINIPC_FCN NUC_SendMsg2MINIPC_2_0_(
 | 0 | 1 | 帧头1 | uint8 | `0x51` |
 | 1 | 1 | 帧头2 | uint8 | `0x59` |
 | 2 | 1 | gimbal_mode | uint8 | 控制模式指令（见 4.2 节） |
-| 3~6 | 4 | Gimbal_Eular_Angle_enc[0] | uint32 | 云台目标 Yaw 角（量化编码） |
-| 7~10 | 4 | Gimbal_Eular_Angle_enc[1] | uint32 | 云台目标 Pitch 角（量化编码） |
-| 11~14 | 4 | Chassis_Vel_enc[0] | uint32 | 底盘目标 X 速度（量化编码） |
-| 15~18 | 4 | Chassis_Vel_enc[1] | uint32 | 底盘目标 Y 速度（量化编码） |
-| 19~22 | 4 | Chassis_Omega_enc | uint32 | 底盘目标角速度（量化编码） |
+| 3~6 | 4 | Gimbal_Eular_Angle[0] | float32 | 云台目标 Yaw 角，rad，小端 IEEE-754 |
+| 7~10 | 4 | Gimbal_Eular_Angle[1] | float32 | 云台目标 Pitch 角，rad，小端 IEEE-754 |
+| 11~14 | 4 | Chassis_Vel[0] | float32 | 底盘目标 X 速度，小端 IEEE-754 |
+| 15~18 | 4 | Chassis_Vel[1] | float32 | 底盘目标 Y 速度，小端 IEEE-754 |
+| 19~22 | 4 | Chassis_Omega | float32 | 底盘目标角速度，小端 IEEE-754 |
 | 23~24 | 2 | CRC16 | uint16 | 对前 23 字节计算的 CRC16 校验值 |
 
 ---
@@ -139,25 +139,24 @@ _MINIPC_FCN NUC_SendMsg2MINIPC_2_0_(
 
 ---
 
-### 4.3 量化解码规则
+### 4.3 Float32 解包规则
 
-MiniPC 下发的角度与速度字段均为 **32 位无符号整数量化编码**，EC 按如下公式还原为浮点数。注意：下行云台目标角是 **rad**，和上行 GD 帧中的云台反馈角 **degree** 不同。
+MiniPC 将五个字段作为 **32 位 IEEE-754 单精度浮点数**直接发送；不使用整数映射公式，也不做反量化。MiniPC 与 EC 均为小端时，EC 从固定偏移 `memcpy` 四个字节到自己的 `float` 变量。下行云台目标角为 **rad**，和上行 GD 帧中的云台反馈角 **degree** 不同。
 
-$$
-x = \frac{x\_int}{2^{32} - 1} \times (x\_max - x\_min) + x\_min
-$$
+| 字段 | MiniPC 发送前限幅 | EC 接收值 |
+|------|------------------|----------|
+| 云台 Yaw / Pitch 角 | $[-\pi, +\pi]$ rad | 直接得到 rad |
+| 底盘 X / Y 速度 | $[-1, +1]$ | 直接得到归一化值；线上符号与 MiniPC 调用参数相反 |
+| 底盘角速度 | $[-1, +1]$ | 直接得到归一化值；线上符号与 MiniPC 调用参数相反 |
 
-| 字段 | $x\_min$ | $x\_max$ | 单位 |
-|------|----------|----------|------|
-| 云台 Yaw / Pitch 角 | $-\pi$ | $+\pi$ | rad |
-| 底盘 X / Y 速度 | $-1$ | $+1$ | 归一化 |
-| 底盘角速度 | $-1$ | $+1$ | 归一化 |
+例如 EC 解析 yaw：
 
-解码后结果存入：
-- `RX_INFO_2_0.Gimbal_Eular_Angle[0/1]`（rad）
-- `RX_INFO_2_0.Gimbal_Eular_Angle_Degree[0/1]`（自动转换为度）
-- `RX_INFO_2_0.Chassis_Vel[0/1]`
-- `RX_INFO_2_0.Chassis_Omega`
+```c
+float yaw;
+memcpy(&yaw, &rx_buffer[3], sizeof(yaw));
+```
+
+`yaw = 0.25f` 在线上四个字节为 `00 00 80 3E`。五个输入中任一个为 `NaN`、`+Inf` 或 `-Inf` 时，MiniPC 发送 `mode = 0` 且五个浮点字段全为 `0.0f` 的安全停止帧。
 
 ---
 
@@ -235,7 +234,7 @@ GET_CRC16_from_NUC_Fifo_2_0_() 提取末尾 CRC16
 NUC_UnpackMsgfromMiniPC()
    ├─ Verify_CRC16() 校验失败 → 清空缓冲区，丢弃本帧
    └─ 校验通过 → 解析 gimbal_mode / 角度 / 速度字段
-                  → uint_to_float() 反量化
+                  → memcpy() 拷贝五个 float32 原始字节
                   → 存入 RX_INFO_2_0 结构体
 ```
 
@@ -272,10 +271,6 @@ typedef struct {
     uint8_t  useful_info[25];
 
     uint8_t  gimbal_mode;                  // 控制模式
-    uint32_t Gimbal_Eular_Angle_enc[2];    // 云台目标角度（编码）
-    uint32_t Chassis_Vel_enc[2];           // 底盘速度（编码）
-    uint32_t Chassis_Omega_enc;            // 底盘角速度（编码）
-
     float    Gimbal_Eular_Angle[2];        // 云台目标角度（rad）
     float    Gimbal_Eular_Angle_Degree[2]; // 云台目标角度（度）
     float    Chassis_Vel[2];               // 底盘速度（归一化）
@@ -297,8 +292,8 @@ typedef struct {
 2. 读取 `Gimbal_Eular_Angle[0/1/2]` 作为云台反馈角，单位是 degree。
 3. 自瞄算法内部如果使用弧度，先做 `rad = degree * pi / 180`。
 4. 下发 MiniPC 到 EC 的 `QY` 帧时，仍然发送完整 25 字节。
-5. 下行 `yaw/pitch` 目标角按 rad 编码到 `[-pi, pi]`。
-6. 不用导航时，`Chassis_Vel_enc[0]`、`Chassis_Vel_enc[1]`、`Chassis_Omega_enc` 对应的原始速度值填 `0.0` 后量化编码。注意编码后的 4 字节不是全 0。
+5. 下行 `yaw/pitch` 目标角以 rad 的 `float32` 发送，MiniPC 限幅到 `[-pi, pi]`。
+6. 不用导航时，`Chassis_Vel[0]`、`Chassis_Vel[1]`、`Chassis_Omega` 直接填 `0.0f`；每个字段在线上均为四个 `0x00`。
 
 也就是说：不用导航不等于删字段，只是把底盘速度指令固定为 0。
 
@@ -310,7 +305,7 @@ typedef struct {
 | 姿态来源 | 常见为 IMU 四元数 CAN 帧 | `GD` 帧中的云台 yaw/pitch/roll，degree |
 | 控制下发 | CAN ID 中发送控制位、yaw、pitch 等 | `QY` 25 字节帧，含 mode、yaw、pitch、底盘速度、CRC |
 | 模式来源 | 常见为弹速/模式 CAN 帧 | `GD` 帧 offset 36 的 `gimbal_req_mode` |
-| 导航依赖 | 无 | 可选；不用时底盘速度原始值填 `0.0` 后编码 |
+| 导航依赖 | 无 | 可选；不用时底盘速度字段直接填 `0.0f` |
 
 ## 9. 调试验证
 
@@ -333,16 +328,16 @@ cmake --build build --target gimbal_raw_debug -j$(nproc)
 
 | 现象 | 可能原因 | 检查点 |
 |------|----------|--------|
-| `crc=BAD` | CRC 算法或字节序不一致 | 当前视觉工程使用 CRC16/X25，CRC 低字节在前 |
+| `crc=BAD` | CRC 算法或字节序不一致 | 检查初值 `0xFFFF`、反射查表、无最终异或，以及 CRC 低字节在前 |
 | 视觉一直是 IDLE | `gimbal_req_mode` 未发 `0x11` | 检查 GD 帧 offset 36 |
 | 角度差 57.3 倍 | degree/rad 混用 | GD 云台反馈是 degree，下行目标角是 rad |
-| 不接导航后底盘乱动 | 底盘速度原始值未置 0 | QY 帧 11~22 字节应由 `0.0` 量化编码得到，不能直接写全 0 |
+| 不接导航后底盘乱动 | 底盘速度未置 0 | QY 帧 11~22 字节应为三个 `0.0f`，即 12 个 `0x00` |
 
 ## 10. 注意事项
 
-1. **字节序**：所有 float/uint32 字段均为**小端**传输，上位机解析时须注意。
-2. **CRC 类型**：当前工程使用 CRC16/X25，CRC 字节排列为低字节在前（little-endian）。视觉端 `io/gimbal/gimbal.cpp` 和 `tests/gimbal_raw_debug.cpp` 均按 X25 实现。
-3. **上行/下行角度单位不同**：EC 上行 `GD` 帧的云台反馈角是 degree；MiniPC 下行 `QY` 帧的云台目标角是 rad，经 `[-pi, pi]` 量化编码。
-4. **速度归一化**：MiniPC 下发的底盘速度为 $[-1, 1]$ 归一化值，EC 需根据实际最大速度参数自行换算为物理量。不使用导航时，量化前的速度原始值填 `0.0`。
+1. **字节序**：GD 的 float 字段和 QY 的五个 float32 字段均为**小端**传输；QY 在 MiniPC 和 EC 之间要求 4 字节 IEEE-754 单精度浮点数。
+2. **CRC 类型**：当前工程使用初值 `0xFFFF`、反射查表、无最终异或的 CRC16，CRC 字节排列为低字节在前（little-endian）。视觉端 `io/gimbal/gimbal.cpp` 和 `tests/gimbal_raw_debug.cpp` 使用同一规则。
+3. **上行/下行角度单位不同**：EC 上行 `GD` 帧的云台反馈角是 degree；MiniPC 下行 `QY` 帧的云台目标角是 rad，并限幅到 `[-pi, pi]` 后直接发送 float32。
+4. **速度归一化**：MiniPC 下发的底盘速度为 $[-1, 1]$ 归一化值，EC 需根据实际最大速度参数自行换算为物理量。MiniPC 先限幅，随后按当前约定取反并直接发送 float32；不使用导航时填 `0.0f`。
 5. **接收缓冲区清零**：解包成功或失败后均应调用 `memset(rxbuffer, 0, ...)` 清空缓冲区，防止脏数据残留。
 6. **帧丢失处理**：CRC 校验失败时直接丢弃本帧，不做重传请求，依赖高频率周期发送保证实时性。

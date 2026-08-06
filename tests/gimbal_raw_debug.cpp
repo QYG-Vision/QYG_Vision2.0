@@ -38,19 +38,6 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
   return crc;
 }
 
-uint32_t float_to_uint(float val, float min, float max, int bits)
-{
-  if (val < min) val = min;
-  if (val > max) val = max;
-  return static_cast<uint32_t>(
-    (val - min) * static_cast<double>((1ULL << bits) - 1) / (max - min));
-}
-
-float uint_to_float(uint32_t val, float min, float max, int bits)
-{
-  return static_cast<float>(val) * (max - min) / static_cast<float>((1ULL << bits) - 1) + min;
-}
-
 std::string hex_bytes(const uint8_t * data, size_t len)
 {
   std::ostringstream oss;
@@ -60,19 +47,6 @@ std::string hex_bytes(const uint8_t * data, size_t len)
     if (i + 1 != len) oss << ' ';
   }
   return oss.str();
-}
-
-io::SendFrame make_send_frame(bool control, bool fire, float yaw, float pitch)
-{
-  io::SendFrame frame;
-  frame.mode = control ? (fire ? 2 : 1) : 0;
-  frame.yaw = float_to_uint(yaw, -M_PI, M_PI, 32);
-  frame.pitch = float_to_uint(pitch, -M_PI, M_PI, 32);
-  frame.linear_x = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.linear_y = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.angular_z = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.crc16 = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - 2);
-  return frame;
 }
 
 std::string mode_name(io::GimbalMode mode)
@@ -125,7 +99,7 @@ int main(int argc, char * argv[])
 
   while (!exiter.exit()) {
     if (send_fixed && std::chrono::steady_clock::now() - last_send >= std::chrono::milliseconds(period_ms)) {
-      auto frame = make_send_frame(true, true, yaw, pitch);
+      auto frame = io::gimbal_protocol::make_send_frame(true, true, yaw, pitch);
       serial.write(reinterpret_cast<uint8_t *>(&frame), sizeof(frame));
       last_send = std::chrono::steady_clock::now();
 
@@ -134,8 +108,8 @@ int main(int argc, char * argv[])
         tools::logger()->info(
           "[QY TX] mode={} yaw={:.2f}deg pitch={:.2f}deg raw={}",
           frame.mode,
-          uint_to_float(frame.yaw, -M_PI, M_PI, 32) * 57.3,
-          uint_to_float(frame.pitch, -M_PI, M_PI, 32) * 57.3,
+          frame.yaw * 57.3,
+          frame.pitch * 57.3,
           hex_bytes(reinterpret_cast<uint8_t *>(&frame), sizeof(frame)));
         last_tx_log = last_send;
       }
@@ -197,7 +171,7 @@ int main(int argc, char * argv[])
   }
 
   if (send_fixed) {
-    auto stop = make_send_frame(false, false, 0.0f, 0.0f);
+    auto stop = io::gimbal_protocol::make_send_frame(false, false, 0.0f, 0.0f);
     serial.write(reinterpret_cast<uint8_t *>(&stop), sizeof(stop));
   }
   return 0;

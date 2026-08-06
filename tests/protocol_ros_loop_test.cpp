@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -281,32 +282,70 @@ int main(int argc, char ** argv)
 
   const auto tx = io::gimbal_protocol::make_send_frame(
     true, false, 0.25f, -0.12f, latest_cmd.linear.x, latest_cmd.linear.y, latest_cmd.angular.z);
+  const auto * const tx_bytes = reinterpret_cast<const uint8_t *>(&tx);
+  const uint8_t expected_yaw_bytes[] = {0x00, 0x00, 0x80, 0x3E};
+  expect_true(
+    sizeof(tx) == 25 && offsetof(io::SendFrame, yaw) == 3 && offsetof(io::SendFrame, crc16) == 23,
+    "QY frame layout",
+    "QY frame remains 25 bytes with unchanged yaw and CRC offsets",
+    "Check SendFrame packing and field declarations.");
   expect_true(
     io::gimbal_protocol::crc16_x25(
       reinterpret_cast<const uint8_t *>(&tx), sizeof(tx) - sizeof(tx.crc16)) == tx.crc16,
     "QY frame pack",
     "QY CRC matches packed frame",
     "Check SendFrame size/offsets and CRC16 range.");
-  expect_near(
-    io::gimbal_protocol::decode_angle(tx.yaw), 0.25, kEpsilon,
-    "QY frame pack", "yaw command encodes and decodes correctly",
+  expect_true(
+    std::memcmp(tx_bytes + offsetof(io::SendFrame, yaw), expected_yaw_bytes, sizeof(expected_yaw_bytes)) == 0,
+    "QY float32 wire format",
+    "yaw=0.25f is serialized as little-endian IEEE-754 00 00 80 3E",
+    "Check that QY yaw is a direct float32 field at offset 3.");
+  expect_near(tx.yaw, 0.25, kEpsilon, "QY frame pack", "yaw command is direct float32",
     "Check yaw unit: MiniPC sends radians in [-pi, pi].");
-  expect_near(
-    io::gimbal_protocol::decode_angle(tx.pitch), -0.12, kEpsilon,
-    "QY frame pack", "pitch command encodes and decodes correctly",
+  expect_near(tx.pitch, -0.12, kEpsilon, "QY frame pack", "pitch command is direct float32",
     "Check pitch unit: MiniPC sends radians in [-pi, pi].");
-  expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_x), -cmd_vel.linear.x, kEpsilon,
-    "QY frame pack", "linear_x command encodes negated /cmd_vel.linear.x",
-    "Check chassis command sign, range [-1, 1], and field order.");
-  expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_y), -cmd_vel.linear.y, kEpsilon,
-    "QY frame pack", "linear_y command encodes negated /cmd_vel.linear.y",
-    "Check chassis command sign, range [-1, 1], and field order.");
-  expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.angular_z), -cmd_vel.angular.z, kEpsilon,
-    "QY frame pack", "angular_z command encodes negated /cmd_vel.angular.z",
-    "Check /cmd_vel angular.z sign and mapping.");
+  expect_near(tx.linear_x, -cmd_vel.linear.x, kEpsilon, "QY frame pack",
+    "linear_x command remains negated on wire", "Check chassis command sign, range [-1, 1], and field order.");
+  expect_near(tx.linear_y, -cmd_vel.linear.y, kEpsilon, "QY frame pack",
+    "linear_y command remains negated on wire", "Check chassis command sign, range [-1, 1], and field order.");
+  expect_near(tx.angular_z, -cmd_vel.angular.z, kEpsilon, "QY frame pack",
+    "angular_z command remains negated on wire", "Check /cmd_vel angular.z sign and mapping.");
+
+  const auto clamped_tx = io::gimbal_protocol::make_send_frame(
+    true, false, 10.0f, -10.0f, 2.0f, -2.0f, 3.0f);
+  expect_near(clamped_tx.yaw, M_PI, kEpsilon, "QY frame clamp", "yaw is clamped to +pi",
+    "Check the yaw range before serialization.");
+  expect_near(clamped_tx.pitch, -M_PI, kEpsilon, "QY frame clamp", "pitch is clamped to -pi",
+    "Check the pitch range before serialization.");
+  expect_near(clamped_tx.linear_x, -1.0, kEpsilon, "QY frame clamp", "linear_x is negated then clamped",
+    "Check the QY velocity sign and [-1, 1] limit.");
+  expect_near(clamped_tx.linear_y, 1.0, kEpsilon, "QY frame clamp", "linear_y is negated then clamped",
+    "Check the QY velocity sign and [-1, 1] limit.");
+  expect_near(clamped_tx.angular_z, -1.0, kEpsilon, "QY frame clamp", "angular_z is negated then clamped",
+    "Check the QY velocity sign and [-1, 1] limit.");
+
+  const auto invalid_tx = io::gimbal_protocol::make_send_frame(
+    true, true, std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f, 0.0f,
+    std::numeric_limits<float>::infinity());
+  expect_true(
+    invalid_tx.mode == 0 && invalid_tx.yaw == 0.0f && invalid_tx.pitch == 0.0f &&
+    invalid_tx.linear_x == 0.0f && invalid_tx.linear_y == 0.0f && invalid_tx.angular_z == 0.0f,
+    "QY non-finite safety", "NaN or Inf produces a zero-valued stop frame",
+    "Check std::isfinite validation before applying limits.");
+  expect_true(
+    io::gimbal_protocol::crc16_x25(
+      reinterpret_cast<const uint8_t *>(&invalid_tx), sizeof(invalid_tx) - sizeof(invalid_tx.crc16)) ==
+      invalid_tx.crc16,
+    "QY non-finite safety", "stop frame CRC matches the zero-valued payload",
+    "Check CRC calculation after replacing invalid values.");
+  const auto negative_inf_tx = io::gimbal_protocol::make_send_frame(
+    true, false, 0.0f, std::numeric_limits<float>::lowest(), 0.0f, 0.0f,
+    -std::numeric_limits<float>::infinity());
+  expect_true(
+    negative_inf_tx.mode == 0 && negative_inf_tx.yaw == 0.0f && negative_inf_tx.pitch == 0.0f &&
+    negative_inf_tx.linear_x == 0.0f && negative_inf_tx.linear_y == 0.0f && negative_inf_tx.angular_z == 0.0f,
+    "QY non-finite safety", "negative infinity also produces a zero-valued stop frame",
+    "Check std::isfinite validation for -Inf.");
   pass("QY frame pack");
 
   rclcpp::shutdown();
