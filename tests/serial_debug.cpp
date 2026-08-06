@@ -17,7 +17,8 @@ int main(int argc ,char* argv[]){
 	while(!exiter.exit()){
 		auto state = gimbal.state();
 		tools::logger()->info("yaw: {}, pitch: {}, bullet_speed: {}, yaw_imu: {}, pitch_imu: {}, roll_imu: {}, mode: {}",
-			state.yaw, state.pitch, state.bullet_speed, state.yaw_imu, state.pitch_imu, state.roll_imu, state.mode);
+			state.yaw, state.pitch, state.bullet_speed, state.yaw_imu, state.pitch_imu, state.roll_imu,
+			gimbal.str(gimbal.mode()));
 
 
 		gimbal.send(0,0,0.115,1.151332);

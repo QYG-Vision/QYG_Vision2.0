@@ -117,7 +117,7 @@ Eigen::Vector3d Gimbal::euler(std::chrono::steady_clock::time_point t)
 void Gimbal::send(bool control, bool fire, float yaw, float pitch, float linear_x, float linear_y, float angular_z)
 {
   auto frame = gimbal_protocol::make_send_frame(
-    control, fire, yaw, pitch, linear_x, -linear_y, angular_z);
+    control, fire, yaw, pitch, linear_x, linear_y, angular_z);
 
 
     // //5.14
@@ -191,10 +191,7 @@ void Gimbal::read_thread()
         std::lock_guard<std::mutex> lock(mutex_);
         state_ = latest_state;
 
-        if (state_.mode == 0x11) mode_ = GimbalMode::AUTO_AIM;
-        else if (state_.mode == 0x12) mode_ = GimbalMode::SMALL_BUFF;
-        else if (state_.mode == 0x13) mode_ = GimbalMode::BIG_BUFF;
-        else mode_ = GimbalMode::IDLE;
+        mode_ = gimbal_protocol::sentry_mode(state_.sentry_state);
       }
 
       const Eigen::Vector3d euler_deg(

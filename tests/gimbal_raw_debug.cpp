@@ -1,4 +1,5 @@
 #include "io/gimbal/gimbal.hpp"
+#include "io/gimbal/gimbal_protocol.hpp"
 #include "serial/serial.h"
 #include "tools/exiter.hpp"
 #include "tools/logger.hpp"
@@ -6,6 +7,7 @@
 
 #include <chrono>
 #include <algorithm>
+#include <bitset>
 #include <cstring>
 #include <iomanip>
 #include <opencv2/opencv.hpp>
@@ -34,20 +36,7 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
       crc = (crc & 1) ? (crc >> 1) ^ 0x8408 : (crc >> 1);
     }
   }
-  return crc ^ 0xFFFF;
-}
-
-uint32_t float_to_uint(float val, float min, float max, int bits)
-{
-  if (val < min) val = min;
-  if (val > max) val = max;
-  return static_cast<uint32_t>(
-    (val - min) * static_cast<double>((1ULL << bits) - 1) / (max - min));
-}
-
-float uint_to_float(uint32_t val, float min, float max, int bits)
-{
-  return static_cast<float>(val) * (max - min) / static_cast<float>((1ULL << bits) - 1) + min;
+  return crc;
 }
 
 std::string hex_bytes(const uint8_t * data, size_t len)
@@ -61,27 +50,20 @@ std::string hex_bytes(const uint8_t * data, size_t len)
   return oss.str();
 }
 
-io::SendFrame make_send_frame(bool control, bool fire, float yaw, float pitch)
-{
-  io::SendFrame frame;
-  frame.mode = control ? (fire ? 2 : 1) : 0;
-  frame.yaw = float_to_uint(yaw, -M_PI, M_PI, 32);
-  frame.pitch = float_to_uint(pitch, -M_PI, M_PI, 32);
-  frame.linear_x = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.linear_y = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.angular_z = float_to_uint(0.0f, -1.0f, 1.0f, 32);
-  frame.crc16 = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - 2);
-  return frame;
-}
-
-std::string mode_name(uint8_t mode)
+std::string mode_name(io::GimbalMode mode)
 {
   switch (mode) {
-    case 0x11: return "AUTO_AIM";
-    case 0x12: return "SMALL_BUFF";
-    case 0x13: return "BIG_BUFF";
-    default: return "IDLE/OTHER";
+    case io::GimbalMode::AUTO_AIM: return "AUTO_AIM";
+    case io::GimbalMode::SMALL_BUFF: return "SMALL_BUFF";
+    case io::GimbalMode::BIG_BUFF: return "BIG_BUFF";
+    default: return "IDLE";
   }
+}
+
+std::string sentry_bits(uint16_t value)
+{
+  const auto bits = std::bitset<16>(value).to_string();
+  return bits.substr(0, 2) + "|" + bits.substr(2);
 }
 }  // namespace
 
@@ -124,7 +106,7 @@ int main(int argc, char * argv[])
 
   while (!exiter.exit()) {
     if (send_fixed && std::chrono::steady_clock::now() - last_send >= std::chrono::milliseconds(period_ms)) {
-      auto frame = make_send_frame(true, true, yaw, pitch);
+      auto frame = io::gimbal_protocol::make_send_frame(true, true, yaw, pitch);
       serial.write(reinterpret_cast<uint8_t *>(&frame), sizeof(frame));
       last_send = std::chrono::steady_clock::now();
 
@@ -133,8 +115,8 @@ int main(int argc, char * argv[])
         tools::logger()->info(
           "[QY TX] mode={} yaw={:.2f}deg pitch={:.2f}deg raw={}",
           frame.mode,
-          uint_to_float(frame.yaw, -M_PI, M_PI, 32) * 57.3,
-          uint_to_float(frame.pitch, -M_PI, M_PI, 32) * 57.3,
+          frame.yaw * 57.3,
+          frame.pitch * 57.3,
           hex_bytes(reinterpret_cast<uint8_t *>(&frame), sizeof(frame)));
         last_tx_log = last_send;
       }
@@ -162,7 +144,9 @@ int main(int argc, char * argv[])
       std::memcpy(&frame, rx_buffer.data(), frame_size);
       const auto crc_calc = crc16_x25(reinterpret_cast<uint8_t *>(&frame), frame_size - 2);
       const bool crc_ok = crc_calc == frame.crc16;
-      const auto mode = frame.mode;
+      const auto sentry_state = frame.sentry_state;
+      const auto mode = io::gimbal_protocol::sentry_mode(sentry_state);
+      const auto sentry_status = io::gimbal_protocol::sentry_status(sentry_state);
       const auto current_mode = frame.current_mode;
       const auto actual_vx = frame.actual_vx;
       const auto actual_vy = frame.actual_vy;
@@ -176,9 +160,9 @@ int main(int argc, char * argv[])
       const auto now = std::chrono::steady_clock::now();
       if (now - last_log >= 200ms) {
         tools::logger()->info(
-          "[GD RX] crc={} mode=0x{:02X}({}) current_mode=0x{:02X} vx={:.3f} vy={:.3f} wz={:.3f} imu_yaw={:.2f} imu_pitch={:.2f} vyaw={:.2f} vpitch={:.2f} vroll={:.2f} raw={}",
+          "[GD RX] crc={} sentry_state=0x{:04X} bits(mode[15:14]|status[13:0])={} status=0x{:04X} mode={} current_mode=0x{:02X} vx={:.3f} vy={:.3f} wz={:.3f} imu_yaw={:.2f} imu_pitch={:.2f} vyaw={:.2f} vpitch={:.2f} vroll={:.2f} raw={}",
           crc_ok ? "OK" : "BAD",
-          mode, mode_name(mode),
+          sentry_state, sentry_bits(sentry_state), sentry_status, mode_name(mode),
           current_mode,
           actual_vx, actual_vy, actual_wz,
           imu_yaw, imu_pitch,
@@ -194,7 +178,7 @@ int main(int argc, char * argv[])
   }
 
   if (send_fixed) {
-    auto stop = make_send_frame(false, false, 0.0f, 0.0f);
+    auto stop = io::gimbal_protocol::make_send_frame(false, false, 0.0f, 0.0f);
     serial.write(reinterpret_cast<uint8_t *>(&stop), sizeof(stop));
   }
   return 0;

@@ -5,6 +5,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -30,8 +32,7 @@ struct __attribute__((packed)) ReceiveFrame {
     float yaw_angular = 0.0f;       //底盘的yaw加速度   //24-27
     float pitch_angular = 0.0f;     //底盘的pitch加速度   //28-31
     float odom_x = 0.0f;           //里程计累计值   //32-35
-    uint8_t chassis_state = 0;      //底盘状态   //36
-    uint8_t mode = 0;          //视觉mode//37
+    uint16_t sentry_state = 0;      // 视觉模式(高2位) + 哨兵状态(低14位) //35-36
     float vyaw = 0.0f;       //云台的yaw角度       //38-41
     float vpitch = 0.0f;      // 电控线路原始云台 Pitch，degree //42-45
     float vroll = 0.0f;             //云台的roll角度       //46-49
@@ -39,6 +40,7 @@ struct __attribute__((packed)) ReceiveFrame {
 };
 
 static_assert(sizeof(ReceiveFrame) == 51, "ReceiveFrame must stay 51 bytes for EC GD protocol");
+static_assert(offsetof(ReceiveFrame, sentry_state) == 35, "GD sentry_state offset must stay byte 35");
 static_assert(offsetof(ReceiveFrame, vyaw) == 37, "GD vyaw offset must stay byte 37");
 static_assert(offsetof(ReceiveFrame, vpitch) == 41, "GD vpitch offset must stay byte 41");
 static_assert(offsetof(ReceiveFrame, vroll) == 45, "GD vroll offset must stay byte 45");
@@ -46,16 +48,18 @@ static_assert(offsetof(ReceiveFrame, crc16) == 49, "GD CRC16 offset must stay by
 
 // --- 发送协议结构 (QY 帧头) ---
 struct __attribute__((packed)) SendFrame {
-    uint8_t header[2] = {'Q', 'Y'};
-    uint8_t mode = 0;
-    uint32_t yaw = 0;
-    uint32_t pitch = 0;
-    uint32_t linear_x = 0;
-    uint32_t linear_y = 0;
-    uint32_t angular_z = 0;
-    uint16_t crc16 = 0;
+    uint8_t header[2] = {'Q', 'Y'};  // offsets 0-1
+    uint8_t mode = 0;                // offset 2
+    float yaw = 0.0f;                // offsets 3-6, little-endian IEEE-754 float32
+    float pitch = 0.0f;              // offsets 7-10, little-endian IEEE-754 float32
+    float linear_x = 0.0f;           // offsets 11-14, little-endian IEEE-754 float32
+    float linear_y = 0.0f;           // offsets 15-18, little-endian IEEE-754 float32
+    float angular_z = 0.0f;          // offsets 19-22, little-endian IEEE-754 float32
+    uint16_t crc16 = 0;              // offsets 23-24
 };
 
+static_assert(sizeof(float) == 4, "QY protocol requires 32-bit float");
+static_assert(std::numeric_limits<float>::is_iec559, "QY protocol requires IEEE-754 float");
 static_assert(sizeof(SendFrame) == 25, "SendFrame must stay 25 bytes for EC QY protocol");
 static_assert(offsetof(SendFrame, yaw) == 3, "QY yaw offset must stay byte 3");
 static_assert(offsetof(SendFrame, pitch) == 7, "QY pitch offset must stay byte 7");
@@ -64,12 +68,12 @@ static_assert(offsetof(SendFrame, linear_y) == 15, "QY linear_y offset must stay
 static_assert(offsetof(SendFrame, angular_z) == 19, "QY angular_z offset must stay byte 19");
 static_assert(offsetof(SendFrame, crc16) == 23, "QY CRC16 offset must stay byte 23");
 
-enum class GimbalMode
+enum class GimbalMode : uint8_t
 {
-  IDLE,        
-  AUTO_AIM,    
-  SMALL_BUFF,  
-  BIG_BUFF     
+  IDLE = 0b00,
+  AUTO_AIM = 0b01,
+  SMALL_BUFF = 0b10,
+  BIG_BUFF = 0b11
 };
 
 struct GimbalState
@@ -84,8 +88,7 @@ struct GimbalState
   float yaw_angular = 0;
   float pitch_angular = 0;
   float odom_x = 0;
-  uint8_t chassis_state = 0;
-  uint8_t mode = 0;
+  uint16_t sentry_state = 0;
   float vyaw = 0;
   float vpitch = 0;  // 视觉统一符号的云台 Pitch，degree；等于 -ReceiveFrame::vpitch
   float vroll = 0;

@@ -18,7 +18,7 @@ struct ChassisData
 {
   Eigen::Vector3d imu_euler; // roll, pitch, yaw (rad)
   uint8_t current_mode;
-  uint8_t mode;
+  uint16_t sentry_state;
   rclcpp::Time stamp;
 };
 

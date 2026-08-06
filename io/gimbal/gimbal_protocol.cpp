@@ -45,18 +45,6 @@ constexpr uint16_t kCrc16X25Table[256] = {
   0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 };
 
-uint32_t encode_float(float val, float min, float max, int bits)
-{
-  val = std::clamp(val, min, max);
-  const auto range = max - min;
-  return static_cast<uint32_t>((val - min) * static_cast<double>((1ULL << bits) - 1) / range);
-}
-
-float decode_float(uint32_t val, float min, float max, int bits)
-{
-  return static_cast<float>(val) * (max - min) / static_cast<float>((1ULL << bits) - 1) + min;
-}
-
 GimbalState to_gimbal_state(const ReceiveFrame & frame)
 {
   GimbalState state;
@@ -70,8 +58,7 @@ GimbalState to_gimbal_state(const ReceiveFrame & frame)
   state.yaw_angular = frame.yaw_angular;
   state.pitch_angular = frame.pitch_angular;
   state.odom_x = frame.odom_x;
-  state.chassis_state = frame.chassis_state;
-  state.mode = frame.mode;
+  state.sentry_state = frame.sentry_state;
   state.vyaw = frame.vyaw;
   state.vpitch = -frame.vpitch;
   state.vroll = frame.vroll;
@@ -88,7 +75,30 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
   while (len--) {
     crc = (crc >> 8) ^ kCrc16X25Table[(crc ^ *data++) & 0xFF];
   }
-  return crc ^ 0xFFFF;
+  return crc;
+}
+
+uint16_t pack_sentry_state(uint16_t status, GimbalMode mode)
+{
+  constexpr uint16_t kStatusMask = 0x3FFF;
+  constexpr uint16_t kModeMask = 0x0003;
+  return static_cast<uint16_t>(status & kStatusMask) |
+         static_cast<uint16_t>((static_cast<uint16_t>(mode) & kModeMask) << 14);
+}
+
+uint16_t sentry_status(uint16_t sentry_state)
+{
+  return static_cast<uint16_t>(sentry_state & 0x3FFF);
+}
+
+GimbalMode sentry_mode(uint16_t sentry_state)
+{
+  switch ((sentry_state >> 14) & 0x0003) {
+    case 0b01: return GimbalMode::AUTO_AIM;
+    case 0b10: return GimbalMode::SMALL_BUFF;
+    case 0b11: return GimbalMode::BIG_BUFF;
+    default: return GimbalMode::IDLE;
+  }
 }
 
 std::optional<GimbalState> parse_receive_frame(const uint8_t * bytes, std::size_t size)
@@ -121,24 +131,22 @@ SendFrame make_send_frame(
   float linear_x, float linear_y, float angular_z)
 {
   SendFrame frame;
+  if (!std::isfinite(yaw) || !std::isfinite(pitch) ||
+      !std::isfinite(linear_x) || !std::isfinite(linear_y) || !std::isfinite(angular_z)) {
+    frame.crc16 = crc16_x25(
+      reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
+    return frame;
+  }
+
+  constexpr float kPi = static_cast<float>(M_PI);
   frame.mode = control ? (fire ? 2 : 1) : 0;
-  frame.yaw = encode_float(yaw, -M_PI, M_PI, 32);
-  frame.pitch = encode_float(-pitch, -M_PI, M_PI, 32);
-  frame.linear_x = encode_float(linear_x, -1.0f, 1.0f, 32);
-  frame.linear_y = encode_float(linear_y, -1.0f, 1.0f, 32);
-  frame.angular_z = encode_float(angular_z, -1.0f, 1.0f, 32);
+  frame.yaw = std::clamp(yaw, -kPi, kPi);
+  frame.pitch = -std::clamp(pitch, -kPi, kPi);
+  frame.linear_x = -std::clamp(linear_x, -1.0f, 1.0f);
+  frame.linear_y = -std::clamp(linear_y, -1.0f, 1.0f);
+  frame.angular_z = -std::clamp(angular_z, -1.0f, 1.0f);
   frame.crc16 = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
   return frame;
-}
-
-float decode_angle(uint32_t value)
-{
-  return decode_float(value, -M_PI, M_PI, 32);
-}
-
-float decode_chassis_command(uint32_t value)
-{
-  return decode_float(value, -1.0f, 1.0f, 32);
 }
 
 }  // namespace io::gimbal_protocol

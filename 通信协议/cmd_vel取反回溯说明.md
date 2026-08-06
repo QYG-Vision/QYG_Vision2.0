@@ -24,17 +24,17 @@
 恢复前的原始设置是：QY 下行帧直接编码 `Gimbal::send()` 收到的底盘速度参数，不做符号取反。
 
 ```cpp
-frame.linear_x = encode_float(linear_x, -1.0f, 1.0f, 32);
-frame.linear_y = encode_float(linear_y, -1.0f, 1.0f, 32);
-frame.angular_z = encode_float(angular_z, -1.0f, 1.0f, 32);
+frame.linear_x = std::clamp(linear_x, -1.0f, 1.0f);
+frame.linear_y = std::clamp(linear_y, -1.0f, 1.0f);
+frame.angular_z = std::clamp(angular_z, -1.0f, 1.0f);
 ```
 
 对应测试期望为：
 
 ```cpp
-decode_chassis_command(tx.linear_x) == cmd_vel.linear.x
-decode_chassis_command(tx.linear_y) == cmd_vel.linear.y
-decode_chassis_command(tx.angular_z) == cmd_vel.angular.z
+tx.linear_x == cmd_vel.linear.x
+tx.linear_y == cmd_vel.linear.y
+tx.angular_z == cmd_vel.angular.z
 ```
 
 ## 恢复原设置步骤

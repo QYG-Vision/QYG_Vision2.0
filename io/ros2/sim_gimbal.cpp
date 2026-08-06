@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "io/gimbal/gimbal_protocol.hpp"
 #include "io/ros2/ros_time.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -34,7 +35,7 @@ SimGimbal::SimGimbal(const std::string & config_path)
   yaw_cmd_offset_deg_ = read_or<double>(yaml, "sim_yaw_cmd_offset_deg", 0.0);
   pitch_cmd_offset_deg_ = read_or<double>(yaml, "sim_pitch_cmd_offset_deg", 0.0);
   state_.bullet_speed = read_or<float>(yaml, "sim_bullet_speed", 25.0f);
-  state_.mode = 0x11;
+  state_.sentry_state = gimbal_protocol::pack_sentry_state(0, GimbalMode::AUTO_AIM);
 
   node_ = std::make_shared<rclcpp::Node>("qyg_sim_gimbal");
   pose_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -131,7 +132,7 @@ void SimGimbal::pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr m
 
   std::lock_guard<std::mutex> lock(mutex_);
   state_.current_mode = 0x01;
-  state_.mode = 0x11;
+  state_.sentry_state = gimbal_protocol::pack_sentry_state(0, GimbalMode::AUTO_AIM);
   state_.vyaw = static_cast<float>(rpy_deg[2]);
   state_.vpitch = static_cast<float>(rpy_deg[1]);
   state_.vroll = static_cast<float>(rpy_deg[0]);

@@ -4,8 +4,10 @@
 #include "tools/math_tools.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -55,6 +57,19 @@ void expect_true(bool value, const char * stage, const char * check, const char 
   }
 }
 
+void expect_equal_hex(
+  uint16_t actual, uint16_t expected, const char * stage, const char * check, const char * hint)
+{
+  if (actual != expected) {
+    std::cerr << "\n[FAIL] " << stage << "\n"
+              << "  Check   : " << check << "\n"
+              << "  Actual  : 0x" << std::hex << std::uppercase << actual << "\n"
+              << "  Expected: 0x" << expected << std::dec << "\n"
+              << "  Hint    : " << hint << std::endl;
+    std::exit(1);
+  }
+}
+
 bool same_gimbal_state(const io::GimbalState & lhs, const io::GimbalState & rhs)
 {
   return
@@ -68,8 +83,7 @@ bool same_gimbal_state(const io::GimbalState & lhs, const io::GimbalState & rhs)
     lhs.yaw_angular == rhs.yaw_angular &&
     lhs.pitch_angular == rhs.pitch_angular &&
     lhs.odom_x == rhs.odom_x &&
-    lhs.chassis_state == rhs.chassis_state &&
-    lhs.mode == rhs.mode &&
+    lhs.sentry_state == rhs.sentry_state &&
     lhs.vyaw == rhs.vyaw &&
     lhs.vpitch == rhs.vpitch &&
     lhs.vroll == rhs.vroll &&
@@ -86,6 +100,39 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
 
+  const uint8_t crc_sample[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  expect_equal_hex(
+    io::gimbal_protocol::crc16_x25(crc_sample, sizeof(crc_sample)), 0x6F91,
+    "CRC16 reference",
+    "CRC16 uses the agreed no-final-xor result for 123456789",
+    "Remove the legacy final xor; it would produce 0x906E.");
+  pass("CRC16 reference");
+
+  expect_equal_hex(
+    io::gimbal_protocol::pack_sentry_state(0x1234, io::GimbalMode::BIG_BUFF), 0xD234,
+    "Sentry-state packing",
+    "status uses bits 13:0 and visual mode uses bits 15:14",
+    "Check the status mask and mode left shift.");
+  expect_equal_hex(
+    io::gimbal_protocol::sentry_status(0x8002), 0x0002,
+    "Observed sentry-state regression",
+    "0x8002 keeps low-14-bit status value 2",
+    "Do not shift the status right by two bits.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(0x8002) == io::GimbalMode::SMALL_BUFF,
+    "Observed sentry-state regression",
+    "0x8002 decodes high bits 10 as small-buff mode",
+    "Extract visual mode from bits 15:14.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(0x1234) == io::GimbalMode::IDLE &&
+    io::gimbal_protocol::sentry_mode(0x5234) == io::GimbalMode::AUTO_AIM &&
+    io::gimbal_protocol::sentry_mode(0x9234) == io::GimbalMode::SMALL_BUFF &&
+    io::gimbal_protocol::sentry_mode(0xD234) == io::GimbalMode::BIG_BUFF,
+    "Sentry-state mode mapping",
+    "all four high-bit encodings map to 00/01/10/11",
+    "Check the high-two-bit mode mapping.");
+  pass("Sentry-state helpers");
+
   io::ReceiveFrame rx{};
   rx.current_mode = 0x01;
   rx.actual_vx = 0.35f;
@@ -96,8 +143,7 @@ int main(int argc, char ** argv)
   rx.yaw_angular = 0.7f;
   rx.pitch_angular = -0.4f;
   rx.odom_x = 2.5f;
-  rx.chassis_state = 0x02;
-  rx.mode = 0x11;
+  rx.sentry_state = io::gimbal_protocol::pack_sentry_state(0x1234, io::GimbalMode::AUTO_AIM);
   rx.vyaw = 30.0f;
   rx.vpitch = -10.0f;
   rx.vroll = 1.5f;
@@ -112,7 +158,7 @@ int main(int argc, char ** argv)
     parsed_state.has_value(),
     "GD frame parse",
     "valid GD frame should parse into GimbalState",
-    "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16/X25.");
+    "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16.");
   const auto parsed_state_view =
     io::gimbal_protocol::parse_receive_frame(bytes.data(), bytes.size());
   expect_true(
@@ -120,6 +166,26 @@ int main(int argc, char ** argv)
     "GD frame parse",
     "pointer/size and vector parser overloads produce the same GimbalState",
     "The vector overload should delegate to the no-copy pointer/size parser.");
+  expect_equal_hex(
+    parsed_state->sentry_state, 0x5234,
+    "GD sentry-state parse",
+    "packed sentry state preserves all 16 wire bits",
+    "Check ReceiveFrame and GimbalState sentry_state assignment.");
+  expect_equal_hex(
+    io::gimbal_protocol::sentry_status(parsed_state->sentry_state), 0x1234,
+    "GD sentry-state parse",
+    "packed state exposes the original 14-bit status",
+    "Check the low-14-bit status mask.");
+  expect_true(
+    io::gimbal_protocol::sentry_mode(parsed_state->sentry_state) == io::GimbalMode::AUTO_AIM,
+    "GD sentry-state parse",
+    "packed state exposes auto-aim from the high two bits",
+    "Check the high-two-bit mode extraction.");
+  expect_true(
+    bytes[35] == 0x34 && bytes[36] == 0x52,
+    "GD sentry-state wire order",
+    "0x5234 is serialized as little-endian bytes 34 52",
+    "Check the agreed little-endian uint16_t layout.");
   expect_near(
     parsed_state->actual_vx, rx.actual_vx, kEpsilon,
     "GD frame parse", "actual_vx copied from ReceiveFrame",
@@ -178,7 +244,7 @@ int main(int argc, char ** argv)
     !io::gimbal_protocol::parse_receive_frame(bad_bytes).has_value(),
     "GD CRC guard",
     "corrupted GD frame should be rejected",
-    "Check CRC16/X25 implementation and CRC field offset; bad frames must not update vision state.");
+    "Check CRC16 implementation and CRC field offset; bad frames must not update vision state.");
   pass("GD parse and CRC guard");
 
   auto observer = std::make_shared<rclcpp::Node>("protocol_ros_loop_observer");
@@ -275,32 +341,84 @@ int main(int argc, char ** argv)
 
   const auto tx = io::gimbal_protocol::make_send_frame(
     true, false, 0.25f, -0.12f, latest_cmd.linear.x, latest_cmd.linear.y, latest_cmd.angular.z);
+  const auto * const tx_bytes = reinterpret_cast<const uint8_t *>(&tx);
+  const uint8_t expected_yaw_bytes[] = {0x00, 0x00, 0x80, 0x3E};
+  expect_true(
+    sizeof(tx) == 25 && offsetof(io::SendFrame, yaw) == 3 && offsetof(io::SendFrame, crc16) == 23,
+    "QY frame layout",
+    "QY remains 25 bytes with unchanged yaw and CRC offsets",
+    "Check SendFrame packing and field declarations.");
   expect_true(
     io::gimbal_protocol::crc16_x25(
       reinterpret_cast<const uint8_t *>(&tx), sizeof(tx) - sizeof(tx.crc16)) == tx.crc16,
     "QY frame pack",
     "QY CRC matches packed frame",
-    "Check SendFrame size/offsets and CRC16/X25 range.");
+    "Check SendFrame size/offsets and CRC16 range.");
+  expect_true(
+    std::memcmp(tx_bytes + offsetof(io::SendFrame, yaw), expected_yaw_bytes, sizeof(expected_yaw_bytes)) == 0,
+    "QY float32 wire format",
+    "yaw=0.25f is serialized as little-endian IEEE-754 bytes 00 00 80 3E",
+    "QY yaw must be a direct float32 field at offset 3.");
   expect_near(
-    io::gimbal_protocol::decode_angle(tx.yaw), 0.25, kEpsilon,
-    "QY frame pack", "yaw command encodes and decodes correctly",
+    tx.yaw, 0.25, kEpsilon,
+    "QY frame pack", "yaw command is direct float32",
     "Check yaw unit: MiniPC sends radians in [-pi, pi].");
   expect_near(
-    io::gimbal_protocol::decode_angle(tx.pitch), 0.12, kEpsilon,
+    tx.pitch, 0.12, kEpsilon,
     "QY frame pack", "pitch command is converted to the EC wire sign",
     "The planner command is -0.12 rad; the current wire convention sends +0.12 rad.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_x), cmd_vel.linear.x, kEpsilon,
-    "QY frame pack", "packer preserves the supplied linear_x command",
-    "Check chassis command range [-1, 1] and field order.");
+    tx.linear_x, -cmd_vel.linear.x, kEpsilon,
+    "QY frame pack", "linear_x command is negated on wire",
+    "Check chassis command sign, range [-1, 1], and field order.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_y), cmd_vel.linear.y, kEpsilon,
-    "QY frame pack", "packer preserves the supplied linear_y command",
-    "Gimbal::send owns any robot-frame y sign adaptation.");
+    tx.linear_y, -cmd_vel.linear.y, kEpsilon,
+    "QY frame pack", "linear_y command is negated on wire",
+    "Check chassis command sign, range [-1, 1], and field order.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.angular_z), cmd_vel.angular.z, kEpsilon,
-    "QY frame pack", "packer preserves the supplied angular_z command",
-    "Check /cmd_vel angular.z range and mapping.");
+    tx.angular_z, -cmd_vel.angular.z, kEpsilon,
+    "QY frame pack", "angular_z command is negated on wire",
+    "Check /cmd_vel angular.z sign and mapping.");
+
+  const auto clamped_tx = io::gimbal_protocol::make_send_frame(
+    true, false, 10.0f, -10.0f, 2.0f, -2.0f, 3.0f);
+  expect_near(clamped_tx.yaw, M_PI, kEpsilon, "QY frame clamp", "yaw clamps to +pi",
+    "Check yaw range before serialization.");
+  expect_near(clamped_tx.pitch, M_PI, kEpsilon, "QY frame clamp", "converted pitch clamps to +pi",
+    "Apply the vision-to-EC pitch sign before limiting the wire value.");
+  expect_near(clamped_tx.linear_x, -1.0, kEpsilon, "QY frame clamp", "linear_x negates and clamps",
+    "Check QY velocity sign and [-1, 1] limit.");
+  expect_near(clamped_tx.linear_y, 1.0, kEpsilon, "QY frame clamp", "linear_y negates and clamps",
+    "Check QY velocity sign and [-1, 1] limit.");
+  expect_near(clamped_tx.angular_z, -1.0, kEpsilon, "QY frame clamp", "angular_z negates and clamps",
+    "Check QY velocity sign and [-1, 1] limit.");
+
+  const auto invalid_tx = io::gimbal_protocol::make_send_frame(
+    true, true, std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f, 0.0f,
+    std::numeric_limits<float>::infinity());
+  expect_true(
+    invalid_tx.mode == 0 && invalid_tx.yaw == 0.0f && invalid_tx.pitch == 0.0f &&
+    invalid_tx.linear_x == 0.0f && invalid_tx.linear_y == 0.0f && invalid_tx.angular_z == 0.0f,
+    "QY non-finite safety",
+    "NaN or infinity produces a zero-valued stop frame",
+    "Validate every command with std::isfinite before packing.");
+  expect_true(
+    io::gimbal_protocol::crc16_x25(
+      reinterpret_cast<const uint8_t *>(&invalid_tx), sizeof(invalid_tx) - sizeof(invalid_tx.crc16)) ==
+      invalid_tx.crc16,
+    "QY non-finite safety",
+    "stop frame CRC matches its zero-valued payload",
+    "Calculate CRC after replacing invalid input with a stop frame.");
+  const auto negative_inf_tx = io::gimbal_protocol::make_send_frame(
+    true, false, 0.0f, 0.0f, 0.0f, 0.0f,
+    -std::numeric_limits<float>::infinity());
+  expect_true(
+    negative_inf_tx.mode == 0 && negative_inf_tx.yaw == 0.0f &&
+    negative_inf_tx.pitch == 0.0f && negative_inf_tx.linear_x == 0.0f &&
+    negative_inf_tx.linear_y == 0.0f && negative_inf_tx.angular_z == 0.0f,
+    "QY non-finite safety",
+    "negative infinity also produces a zero-valued stop frame",
+    "Validate negative infinity with std::isfinite.");
   pass("QY frame pack");
 
   rclcpp::shutdown();

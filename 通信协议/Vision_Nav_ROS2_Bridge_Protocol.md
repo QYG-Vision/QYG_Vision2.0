@@ -166,11 +166,11 @@ rqt MatPlot 推荐对比：
 | `Gimbal::send()` 参数 | 来源 |
 |-----------------------|------|
 | `pitch` | 视觉目标 Pitch，rad；QY 封包时取反为电控线路符号 |
-| `linear_x` | `/cmd_vel.linear.x`，QY 下行帧编码为负值 |
-| `linear_y` | `/cmd_vel.linear.y`，QY 下行帧编码为负值 |
-| `angular_z` | `/cmd_vel.angular.z`，QY 下行帧编码为负值 |
+| `linear_x` | `/cmd_vel.linear.x`，QY 下行帧以取反后的 `float32` 发送 |
+| `linear_y` | `/cmd_vel.linear.y`，QY 下行帧以取反后的 `float32` 发送 |
+| `angular_z` | `/cmd_vel.angular.z`，QY 下行帧以取反后的 `float32` 发送 |
 
-注意：当前 `Gimbal::send()` 会把底盘速度取反后按 `[-1, 1]` 范围编码进 32 bit 字段。如果导航输出是 m/s、rad/s，需要确保电控端和视觉端对限幅/归一化的理解一致。
+注意：`Gimbal::send()` 保留导航原始值，`make_send_frame()` 在协议边界取反并限制到 `[-1, 1]`，随后以小端 IEEE-754 `float32` 发送。如果导航输出是 m/s、rad/s，需要确保电控端和视觉端对限幅范围的理解一致。
 
 ## 6. 验证方式
 
