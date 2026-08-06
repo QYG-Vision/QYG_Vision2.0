@@ -1,6 +1,7 @@
 #include "io/gimbal/gimbal_protocol.hpp"
 #include "io/ros2/aim2nav.hpp"
 #include "io/ros2/nav2aim.hpp"
+#include "tools/math_tools.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -54,6 +55,31 @@ void expect_true(bool value, const char * stage, const char * check, const char 
   }
 }
 
+bool same_gimbal_state(const io::GimbalState & lhs, const io::GimbalState & rhs)
+{
+  return
+    lhs.current_mode == rhs.current_mode &&
+    lhs.actual_vx == rhs.actual_vx &&
+    lhs.actual_vy == rhs.actual_vy &&
+    lhs.actual_wz == rhs.actual_wz &&
+    lhs.imu_yaw == rhs.imu_yaw &&
+    lhs.imu_pitch == rhs.imu_pitch &&
+    lhs.roll_imu == rhs.roll_imu &&
+    lhs.yaw_angular == rhs.yaw_angular &&
+    lhs.pitch_angular == rhs.pitch_angular &&
+    lhs.odom_x == rhs.odom_x &&
+    lhs.chassis_state == rhs.chassis_state &&
+    lhs.mode == rhs.mode &&
+    lhs.vyaw == rhs.vyaw &&
+    lhs.vpitch == rhs.vpitch &&
+    lhs.vroll == rhs.vroll &&
+    lhs.yaw_imu == rhs.yaw_imu &&
+    lhs.pitch_imu == rhs.pitch_imu &&
+    lhs.bullet_speed == rhs.bullet_speed &&
+    lhs.yaw == rhs.yaw &&
+    lhs.pitch == rhs.pitch;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv)
@@ -87,6 +113,13 @@ int main(int argc, char ** argv)
     "GD frame parse",
     "valid GD frame should parse into GimbalState",
     "Check GD header bytes, ReceiveFrame size/offset static_asserts, and CRC16/X25.");
+  const auto parsed_state_view =
+    io::gimbal_protocol::parse_receive_frame(bytes.data(), bytes.size());
+  expect_true(
+    parsed_state_view.has_value() && same_gimbal_state(*parsed_state_view, *parsed_state),
+    "GD frame parse",
+    "pointer/size and vector parser overloads produce the same GimbalState",
+    "The vector overload should delegate to the no-copy pointer/size parser.");
   expect_near(
     parsed_state->actual_vx, rx.actual_vx, kEpsilon,
     "GD frame parse", "actual_vx copied from ReceiveFrame",
@@ -104,13 +137,40 @@ int main(int argc, char ** argv)
     "GD frame parse", "vyaw copied from ReceiveFrame",
     "Check whether the gimbal yaw field was renamed or moved without updating parser/tests.");
   expect_near(
-    parsed_state->vpitch, rx.vpitch, kEpsilon,
-    "GD frame parse", "vpitch copied from ReceiveFrame",
-    "Check whether the gimbal pitch field was renamed or moved without updating parser/tests.");
+    parsed_state->vpitch, -rx.vpitch, kEpsilon,
+    "GD frame parse", "EC wire pitch converted to the vision sign",
+    "ReceiveFrame keeps the EC wire sign; GimbalState must expose the opposite vision sign.");
   expect_near(
     parsed_state->vroll, rx.vroll, kEpsilon,
     "GD frame parse", "vroll copied from ReceiveFrame",
     "Check whether the gimbal roll field was renamed or moved without updating parser/tests.");
+  expect_near(
+    parsed_state->imu_pitch, rx.imu_pitch, kEpsilon,
+    "GD frame parse", "chassis IMU pitch keeps its wire sign",
+    "Only the gimbal encoder vpitch field should be converted at the protocol boundary.");
+
+  // Match the orientation path in the latest QYG_sentry_debug entry point.
+  const Eigen::Vector3d debug_rpy_rad(
+    parsed_state->vroll * kDegToRad,
+    parsed_state->vpitch * kDegToRad,
+    parsed_state->vyaw * kDegToRad);
+  const Eigen::Vector3d debug_ypr_rad(
+    debug_rpy_rad.z(), debug_rpy_rad.y(), debug_rpy_rad.x());
+  const auto recovered_ypr =
+    tools::eulers(tools::rotation_matrix(debug_ypr_rad), 2, 1, 0);
+  expect_near(
+    recovered_ypr.x(), parsed_state->vyaw * kDegToRad, 1e-9,
+    "QYG_sentry_debug orientation", "yaw sign and degree-to-radian conversion",
+    "Check the debug entry point's yaw conversion.");
+  expect_near(
+    recovered_ypr.y(), parsed_state->vpitch * kDegToRad, 1e-9,
+    "QYG_sentry_debug orientation", "canonical vision pitch",
+    "Pitch-sign correction belongs in the gimbal protocol boundary, not in consumers.");
+  expect_near(
+    recovered_ypr.z(), parsed_state->vroll * kDegToRad, 1e-9,
+    "QYG_sentry_debug orientation", "roll sign and RPY/YPR ordering",
+    "Check the solver's Rz(yaw) * Ry(pitch) * Rx(roll) convention.");
+  pass("QYG_sentry_debug gimbal orientation convention");
 
   auto bad_bytes = bytes;
   bad_bytes[10] ^= 0x01;
@@ -172,9 +232,9 @@ int main(int argc, char ** argv)
     "Aim2Nav ROS publish", "joint yaw converted degree -> rad",
     "Check degree/radian conversion for gimbal yaw.");
   expect_near(
-    joint_state->position[1], rx.vpitch * kDegToRad, kEpsilon,
-    "Aim2Nav ROS publish", "joint pitch converted degree -> rad",
-    "Check degree/radian conversion for gimbal pitch.");
+    joint_state->position[1], -rx.vpitch * kDegToRad, kEpsilon,
+    "Aim2Nav ROS publish", "canonical joint pitch converted degree -> rad",
+    "Aim2Nav must consume GimbalState directly without another pitch-sign conversion.");
   pass("Aim2Nav ROS publish");
 
   io::Nav2Aim nav2aim;
@@ -226,21 +286,21 @@ int main(int argc, char ** argv)
     "QY frame pack", "yaw command encodes and decodes correctly",
     "Check yaw unit: MiniPC sends radians in [-pi, pi].");
   expect_near(
-    io::gimbal_protocol::decode_angle(tx.pitch), -0.12, kEpsilon,
-    "QY frame pack", "pitch command encodes and decodes correctly",
-    "Check pitch unit: MiniPC sends radians in [-pi, pi].");
+    io::gimbal_protocol::decode_angle(tx.pitch), 0.12, kEpsilon,
+    "QY frame pack", "pitch command is converted to the EC wire sign",
+    "The planner command is -0.12 rad; the current wire convention sends +0.12 rad.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_x), -cmd_vel.linear.x, kEpsilon,
-    "QY frame pack", "linear_x command encodes negated /cmd_vel.linear.x",
-    "Check chassis command sign, range [-1, 1], and field order.");
+    io::gimbal_protocol::decode_chassis_command(tx.linear_x), cmd_vel.linear.x, kEpsilon,
+    "QY frame pack", "packer preserves the supplied linear_x command",
+    "Check chassis command range [-1, 1] and field order.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.linear_y), -cmd_vel.linear.y, kEpsilon,
-    "QY frame pack", "linear_y command encodes negated /cmd_vel.linear.y",
-    "Check chassis command sign, range [-1, 1], and field order.");
+    io::gimbal_protocol::decode_chassis_command(tx.linear_y), cmd_vel.linear.y, kEpsilon,
+    "QY frame pack", "packer preserves the supplied linear_y command",
+    "Gimbal::send owns any robot-frame y sign adaptation.");
   expect_near(
-    io::gimbal_protocol::decode_chassis_command(tx.angular_z), -cmd_vel.angular.z, kEpsilon,
-    "QY frame pack", "angular_z command encodes negated /cmd_vel.angular.z",
-    "Check /cmd_vel angular.z sign and mapping.");
+    io::gimbal_protocol::decode_chassis_command(tx.angular_z), cmd_vel.angular.z, kEpsilon,
+    "QY frame pack", "packer preserves the supplied angular_z command",
+    "Check /cmd_vel angular.z range and mapping.");
   pass("QY frame pack");
 
   rclcpp::shutdown();

@@ -14,10 +14,6 @@
 namespace io
 {
 
-uint16_t Gimbal::get_crc16(uint8_t* data, uint32_t len) {
-    return gimbal_protocol::crc16_x25(data, len);
-}
-
 Gimbal::Gimbal(const std::string & config_path)
 {
   // 从配置文件中加载YAML配置并读取串口设备路径
@@ -185,84 +181,29 @@ void Gimbal::read_thread()
         continue;
     }
 
-    ReceiveFrame rx;
-    std::memcpy(&rx, &rx_buffer_[start_idx], target_size);
-    
-    if (get_crc16(reinterpret_cast<uint8_t*>(&rx), target_size - 2) == rx.crc16) {
-        // // 临时调试：前 3 帧打印整帧，确认电控到底发了什么
-        // {
-        //   static int gd_cnt = 0;
-        //   if (++gd_cnt <= 3) {
-        //     const auto header0 = rx.header[0];
-        //     const auto header1 = rx.header[1];
-        //     const auto current_mode = rx.current_mode;
-        //     const auto actual_vx = rx.actual_vx;
-        //     const auto actual_vy = rx.actual_vy;
-        //     const auto actual_wz = rx.actual_wz;
-        //     const auto imu_yaw = rx.imu_yaw;
-        //     const auto imu_pitch = rx.imu_pitch;
-        //     const auto yaw_angular = rx.yaw_angular;
-        //     const auto pitch_angular = rx.pitch_angular;
-        //     const auto odom_x = rx.odom_x;
-        //     const auto chassis_state = rx.chassis_state;
-        //     const auto mode = rx.mode;
-        //     const auto vyaw = rx.vyaw;
-        //     const auto vpitch = rx.vpitch;
-        //     const auto vroll = rx.vroll;
-        //     const auto crc16 = rx.crc16;
+    const auto parsed_state = gimbal_protocol::parse_receive_frame(
+      rx_buffer_.data() + start_idx, target_size);
+    if (parsed_state.has_value()) {
+      const auto t_now = std::chrono::steady_clock::now();
+      const auto latest_state = *parsed_state;
 
-        //     tools::logger()->info(
-        //         "[Gimbal] GD frame: hdr=0x{:02X} 0x{:02X}, current_mode=0x{:02X}, actual_vx={:.3f}, actual_vy={:.3f}, actual_wz={:.3f}, imu_yaw={:.3f}, imu_pitch={:.3f}, yaw_angular={:.3f}, pitch_angular={:.3f}, odom_x={:.3f}, chassis_state=0x{:02X}, mode=0x{:02X}, vyaw={:.3f}, vpitch={:.3f}, vroll={:.3f}, crc16=0x{:04X}",
-        //         header0, header1, current_mode,
-        //         actual_vx, actual_vy, actual_wz,
-        //         imu_yaw, imu_pitch,
-        //         yaw_angular, pitch_angular,
-        //         odom_x, chassis_state, mode,
-        //         vyaw, vpitch, vroll,
-        //         crc16);
-        //   }
-        // }
-        rx.vroll = rx.vroll;
-        rx.vpitch = rx.vpitch;
-        auto t_now = std::chrono::steady_clock::now();
-        GimbalState latest_state;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_ = latest_state;
 
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            state_.current_mode = rx.current_mode;
-            state_.actual_vx = rx.actual_vx;
-            state_.actual_vy = rx.actual_vy;
-            state_.actual_wz = rx.actual_wz;
-            state_.imu_yaw = rx.imu_yaw;
-            state_.imu_pitch = rx.imu_pitch;
-            state_.roll_imu = rx.vroll;
-            state_.yaw_angular = rx.yaw_angular;
-            state_.pitch_angular = rx.pitch_angular;
-            state_.odom_x = rx.odom_x;
-            state_.chassis_state = rx.chassis_state;
-            state_.mode = rx.mode;
-            state_.vyaw = rx.vyaw;
-            state_.vpitch = rx.vpitch;
-            state_.vroll = rx.vroll;
+        if (state_.mode == 0x11) mode_ = GimbalMode::AUTO_AIM;
+        else if (state_.mode == 0x12) mode_ = GimbalMode::SMALL_BUFF;
+        else if (state_.mode == 0x13) mode_ = GimbalMode::BIG_BUFF;
+        else mode_ = GimbalMode::IDLE;
+      }
 
-            // 别名映射
-            state_.yaw_imu = state_.imu_yaw;
-            state_.pitch_imu = state_.imu_pitch;
+      const Eigen::Vector3d euler_deg(
+        latest_state.vroll, latest_state.vpitch, latest_state.vyaw);
+      queue_.push({euler_deg, t_now});
 
-            if (rx.mode == 0x11) mode_ = GimbalMode::AUTO_AIM;
-            else if (rx.mode == 0x12) mode_ = GimbalMode::SMALL_BUFF;
-            else if (rx.mode == 0x13) mode_ = GimbalMode::BIG_BUFF;
-            else mode_ = GimbalMode::IDLE;
-
-            latest_state = state_;
-        }
-
-        Eigen::Vector3d euler_deg(rx.vroll, rx.vpitch, rx.vyaw);
-        queue_.push({euler_deg, t_now});
-
-        if (aim2nav_) {
-            aim2nav_->publish(latest_state);
-        }
+      if (aim2nav_) {
+        aim2nav_->publish(latest_state);
+      }
     }
 
     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + start_idx + target_size);

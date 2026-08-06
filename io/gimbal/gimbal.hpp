@@ -33,7 +33,7 @@ struct __attribute__((packed)) ReceiveFrame {
     uint8_t chassis_state = 0;      //底盘状态   //36
     uint8_t mode = 0;          //视觉mode//37
     float vyaw = 0.0f;       //云台的yaw角度       //38-41
-    float vpitch = 0.0f;      //云台的pitch角度       //42-45
+    float vpitch = 0.0f;      // 电控线路原始云台 Pitch，degree //42-45
     float vroll = 0.0f;             //云台的roll角度       //46-49
     uint16_t crc16 = 0;//50-51
 };
@@ -87,7 +87,7 @@ struct GimbalState
   uint8_t chassis_state = 0;
   uint8_t mode = 0;
   float vyaw = 0;
-  float vpitch = 0;
+  float vpitch = 0;  // 视觉统一符号的云台 Pitch，degree；等于 -ReceiveFrame::vpitch
   float vroll = 0;
 
   // 算法兼容性别名
@@ -111,7 +111,7 @@ public:
   GimbalState state() const;
   std::string str(GimbalMode mode) const;
   
-  // 插值接口 (弧度)
+  // 插值接口：返回视觉统一符号的 {roll, pitch, yaw}，单位 degree
   Eigen::Vector3d euler(std::chrono::steady_clock::time_point t);
 
   // 统一发送接口 (QY 帧头)
@@ -136,8 +136,6 @@ private:
 
   void read_thread();
   void reconnect();
-  
-  uint16_t get_crc16(uint8_t* data, uint32_t len);
 };
 
 }  // namespace io

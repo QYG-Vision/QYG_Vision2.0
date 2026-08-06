@@ -73,7 +73,7 @@ GimbalState to_gimbal_state(const ReceiveFrame & frame)
   state.chassis_state = frame.chassis_state;
   state.mode = frame.mode;
   state.vyaw = frame.vyaw;
-  state.vpitch = frame.vpitch;
+  state.vpitch = -frame.vpitch;
   state.vroll = frame.vroll;
   state.yaw_imu = state.imu_yaw;
   state.pitch_imu = state.imu_pitch;
@@ -91,21 +91,29 @@ uint16_t crc16_x25(const uint8_t * data, size_t len)
   return crc ^ 0xFFFF;
 }
 
-std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes)
+std::optional<GimbalState> parse_receive_frame(const uint8_t * bytes, std::size_t size)
 {
-  const uint8_t header[] = {'G', 'D'};
-  const auto it = std::search(bytes.begin(), bytes.end(), std::begin(header), std::end(header));
-  if (it == bytes.end()) return std::nullopt;
+  if (bytes == nullptr || size < sizeof(ReceiveFrame::header)) return std::nullopt;
 
-  const auto start = static_cast<size_t>(std::distance(bytes.begin(), it));
-  if (bytes.size() < start + sizeof(ReceiveFrame)) return std::nullopt;
+  const uint8_t header[] = {'G', 'D'};
+  const auto end = bytes + size;
+  const auto it = std::search(bytes, end, std::begin(header), std::end(header));
+  if (it == end) return std::nullopt;
+
+  const auto start = static_cast<std::size_t>(std::distance(bytes, it));
+  if (size < start + sizeof(ReceiveFrame)) return std::nullopt;
 
   ReceiveFrame frame;
-  std::memcpy(&frame, bytes.data() + start, sizeof(frame));
+  std::memcpy(&frame, bytes + start, sizeof(frame));
   const auto crc = crc16_x25(reinterpret_cast<const uint8_t *>(&frame), sizeof(frame) - sizeof(frame.crc16));
   if (crc != frame.crc16) return std::nullopt;
 
   return to_gimbal_state(frame);
+}
+
+std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes)
+{
+  return parse_receive_frame(bytes.data(), bytes.size());
 }
 
 SendFrame make_send_frame(
@@ -115,7 +123,7 @@ SendFrame make_send_frame(
   SendFrame frame;
   frame.mode = control ? (fire ? 2 : 1) : 0;
   frame.yaw = encode_float(yaw, -M_PI, M_PI, 32);
-  frame.pitch = encode_float(pitch, -M_PI, M_PI, 32);
+  frame.pitch = encode_float(-pitch, -M_PI, M_PI, 32);
   frame.linear_x = encode_float(linear_x, -1.0f, 1.0f, 32);
   frame.linear_y = encode_float(linear_y, -1.0f, 1.0f, 32);
   frame.angular_z = encode_float(angular_z, -1.0f, 1.0f, 32);

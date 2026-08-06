@@ -29,7 +29,7 @@ RoboMaster C 型开发板
   v
 Gimbal::read_thread()
   |
-  | GimbalState.vyaw/vpitch，电控单位为 degree
+  | GimbalState.vyaw/vpitch，视觉统一符号，单位 degree
   v
 io::Aim2Nav
   |
@@ -104,7 +104,7 @@ gimbal.send(
 | 视觉发布类 | `io::Aim2Nav` |
 | 文件 | `io/ros2/aim2nav.hpp`, `io/ros2/aim2nav.cpp` |
 
-电控上行 `GD` 帧里的 `vyaw`、`vpitch` 是角度制 degree。ROS 的 `JointState.position` 必须是弧度 rad，因此视觉端发布前必须乘 `pi / 180`。
+电控上行 `GD` 帧里的 `vyaw`、`vpitch` 是角度制 degree，其中线路原始 Pitch 与视觉 Pitch 符号相反。串口协议解析时统一执行 `GimbalState.vpitch = -ReceiveFrame.vpitch`；ROS 只消费转换后的 `GimbalState`，不得再次取反。`JointState.position` 必须是弧度 rad，因此发布前只需乘 `pi / 180`。
 
 | 字段 | 值 |
 |------|----|
@@ -158,13 +158,14 @@ rqt MatPlot 推荐对比：
 | `actual_vy` | 底盘 Y 方向实测速度，发布到 `/cmd_vel_real.linear.y` |
 | `actual_wz` | 底盘 Z 轴实测角速度，发布到 `/cmd_vel_real.angular.z` |
 | `vyaw` | 云台 yaw，degree，发布到 JointState 前转 rad |
-| `vpitch` | 云台 pitch，degree，发布到 JointState 前转 rad |
+| `vpitch` | 线路原始云台 pitch，degree；解析为 `GimbalState` 时取反，发布前只转 rad |
 | `vroll` | 云台 roll，当前不发布到 JointState |
 
 电控下行 `QY` 帧：
 
 | `Gimbal::send()` 参数 | 来源 |
 |-----------------------|------|
+| `pitch` | 视觉目标 Pitch，rad；QY 封包时取反为电控线路符号 |
 | `linear_x` | `/cmd_vel.linear.x`，QY 下行帧编码为负值 |
 | `linear_y` | `/cmd_vel.linear.y`，QY 下行帧编码为负值 |
 | `angular_z` | `/cmd_vel.angular.z`，QY 下行帧编码为负值 |

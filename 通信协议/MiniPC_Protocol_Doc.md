@@ -49,13 +49,15 @@ Version 2.0 将视觉通道与导航通道合并为单一通信链路，所有�
 | 35 | 1 | sentry_status | uint8 | 哨兵当前运行状态（见 3.2 节） |
 | 36 | 1 | gimbal_req_mode | uint8 | 云台向视觉请求的工作模式（见 3.3 节） |
 | 37~40 | 4 | Gimbal_Eular_Angle[0] | float | 云台 Yaw 角（degree） |
-| 41~44 | 4 | Gimbal_Eular_Angle[1] | float | 云台 Pitch 角（degree） |
+| 41~44 | 4 | Gimbal_Eular_Angle[1] | float | 电控线路原始云台 Pitch 角（degree） |
 | 45~48 | 4 | Gimbal_Eular_Angle[2] | float | 云台 Roll 角（degree） |
 | 49~50 | 2 | CRC16 | uint16 | 对前 49 字节计算的 CRC16 校验值 |
 
 > **注 1**：所有 float 字段均以 IEEE 754 单精度格式、小端字节序传输，直接对原始 bit 进行拷贝（无量化压缩）。
 >
-> **注 2**：当前电控发给 MiniPC 的云台欧拉角是 **角度制 degree**。视觉算法、PnP 或 ROS `JointState` 需要弧度时，必须在视觉端乘 `pi / 180` 后再使用。
+> **注 2**：当前电控发给 MiniPC 的云台欧拉角是 **角度制 degree**。`ReceiveFrame` 保留线路原始值；协议解析后 `GimbalState.vpitch = -ReceiveFrame.vpitch`，Yaw 和 Roll 保持原符号。视觉算法、PnP 或 ROS `JointState` 需要弧度时，再乘 `pi / 180`。
+>
+> **注 3**：Pitch 符号转换发生在 CRC 校验通过后的协议边界，不改变 GD 帧的字节布局、CRC 覆盖范围或线路原始数据。
 
 ---
 
@@ -142,6 +144,8 @@ _MINIPC_FCN NUC_SendMsg2MINIPC_2_0_(
 ### 4.3 量化解码规则
 
 MiniPC 下发的角度与速度字段均为 **32 位无符号整数量化编码**，EC 按如下公式还原为浮点数。注意：下行云台目标角是 **rad**，和上行 GD 帧中的云台反馈角 **degree** 不同。
+
+视觉内部目标 Pitch 使用视觉统一符号；封装 QY 帧时按 `pitch_ec = -pitch_vision` 转成电控线路符号，再计算 CRC16。Yaw 保持原符号。
 
 $$
 x = \frac{x\_int}{2^{32} - 1} \times (x\_max - x\_min) + x\_min
@@ -294,10 +298,10 @@ typedef struct {
 其他视觉组如果只需要替换原来的 CBoard CAN 通信，不需要接导航，可以按下面方式使用：
 
 1. 接收 EC 上行 `GD` 帧，读取 `gimbal_req_mode` 判断当前是否进入自瞄模式。
-2. 读取 `Gimbal_Eular_Angle[0/1/2]` 作为云台反馈角，单位是 degree。
-3. 自瞄算法内部如果使用弧度，先做 `rad = degree * pi / 180`。
+2. 读取 `Gimbal_Eular_Angle[0/1/2]` 作为线路原始云台反馈角，单位是 degree；转换为视觉状态时执行 `pitch_vision = -pitch_ec`。
+3. 自瞄算法只使用转换后的视觉状态；如果需要弧度，再做 `rad = degree * pi / 180`，不要再次对 Pitch 取反。
 4. 下发 MiniPC 到 EC 的 `QY` 帧时，仍然发送完整 25 字节。
-5. 下行 `yaw/pitch` 目标角按 rad 编码到 `[-pi, pi]`。
+5. 下行 `yaw/pitch` 目标角按 rad 编码到 `[-pi, pi]`；其中 Pitch 在协议封包边界执行 `pitch_ec = -pitch_vision`。
 6. 不用导航时，`Chassis_Vel_enc[0]`、`Chassis_Vel_enc[1]`、`Chassis_Omega_enc` 对应的原始速度值填 `0.0` 后量化编码。注意编码后的 4 字节不是全 0。
 
 也就是说：不用导航不等于删字段，只是把底盘速度指令固定为 0。

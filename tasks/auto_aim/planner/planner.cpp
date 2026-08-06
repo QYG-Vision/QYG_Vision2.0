@@ -192,7 +192,7 @@ Eigen::Matrix<double, 2, 1> Planner::aim(const Target & target, double bullet_sp
   auto bullet_traj = tools::Trajectory(bullet_speed, min_dist, xyz.z());
   if (bullet_traj.unsolvable) throw std::runtime_error("Unsolvable bullet trajectory!");
 
-  auto pitch = bullet_traj.pitch + pitch_offset_;
+  auto pitch = -(bullet_traj.pitch + pitch_offset_);
   tools::logger()->info("[Planner] dist={:.2f}m z={:.2f}m pitch={:.2f}deg",
     min_dist, xyz.z(), pitch * 57.3);
 

@@ -13,6 +13,10 @@ namespace io::gimbal_protocol
 
 uint16_t crc16_x25(const uint8_t * data, size_t len);
 
+// Parse EC wire bytes and return angles in the canonical vision convention.
+std::optional<GimbalState> parse_receive_frame(const uint8_t * bytes, std::size_t size);
+
+// Compatibility overload; delegates to the pointer/size parser.
 std::optional<GimbalState> parse_receive_frame(const std::vector<uint8_t> & bytes);
 
 SendFrame make_send_frame(
