@@ -186,6 +186,22 @@ if(rclcpp_FOUND AND geometry_msgs_FOUND AND sensor_msgs_FOUND)
     add_executable(nav2aim_test tests/nav2aim_test.cpp)
     target_link_libraries(nav2aim_test ${OpenCV_LIBS} fmt::fmt tools io)
 
+
+    add_executable(camera_uv_detect tests/AxisTransFormation/camera_uv_detect.cpp)
+    target_link_libraries(camera_uv_detect ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
+    ament_target_dependencies(
+        camera_uv_detect
+        rclcpp
+        sensor_msgs)
+
+    add_executable(camera_pnp_solve tests/AxisTransFormation/camera_pnp_solve.cpp)
+    target_link_libraries(camera_pnp_solve ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
+    ament_target_dependencies(
+        camera_pnp_solve
+        rclcpp
+        sensor_msgs
+        visualization_msgs)
+
     add_executable(gimbal_wave_test tests/gimbal_wave_test.cpp)
     target_link_libraries(gimbal_wave_test ${OpenCV_LIBS} fmt::fmt tools io)
     ament_target_dependencies(

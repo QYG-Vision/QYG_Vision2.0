@@ -29,6 +29,8 @@ public:
 
   std::vector<cv::Point2f> world2pixel(const std::vector<cv::Point3f> & worldPoints);
 
+  std::vector<cv::Point2f> camera2pixel(const std::vector<cv::Point3f> & cameraPoints) const;
+
 private:
   cv::Mat camera_matrix_;
   cv::Mat distort_coeffs_;

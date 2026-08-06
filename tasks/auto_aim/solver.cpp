@@ -440,4 +440,18 @@ std::vector<cv::Point2f> Solver::world2pixel(const std::vector<cv::Point3f> & wo
   cv::projectPoints(valid_world_points, rvec, tvec, camera_matrix_, distort_coeffs_, pixelPoints);
   return pixelPoints;
 }
+
+// 相机坐标直接投影到像素（不经过 world/gimbal 链，用于无云台测试验证）
+std::vector<cv::Point2f> Solver::camera2pixel(const std::vector<cv::Point3f> &cameraPoints) const
+{
+  std::vector<cv::Point3f> valid;
+  for (const auto &p : cameraPoints) {
+    if (p.z > 0) valid.push_back(p);
+  }
+  if (valid.empty()) return {};
+  std::vector<cv::Point2f> pixels;
+  cv::projectPoints(valid, cv::Mat::zeros(3,1,CV_64F), cv::Mat::zeros(3,1,CV_64F),
+                    camera_matrix_, distort_coeffs_, pixels);
+  return pixels;
+}
 }  // namespace auto_aim
