@@ -16,6 +16,7 @@
 #include "tools/exiter.hpp"
 #include "tools/logger.hpp"
 #include "tools/recorder.hpp"
+#include "tools/yaml.hpp"
 #include "io/ros2/aim2nav.hpp"
 #include "io/ros2/nav2aim.hpp"
 
@@ -35,6 +36,10 @@ int main(int argc, char * argv[])
     cli.printMessage();
     return 0;
   }
+  auto yaml = tools::load(config_path);
+  const auto fixed_cmd_vel_angular_z = tools::read<double>(yaml, "fixed_cmd_vel_angular_z");
+  tools::logger()->info(
+    "[Nav2Aim] fixed cmd_vel angular.z override: {:.4f}", fixed_cmd_vel_angular_z);
 
   auto aim2nav = std::make_shared<io::Aim2Nav>();
   io::Nav2Aim nav2aim;
@@ -84,6 +89,9 @@ int main(int argc, char * argv[])
   auto plan_thread = std::thread([&]() {
     while (!quit && rclcpp::ok()) {
       auto cmd_vel = nav2aim.get_latest_state();
+      const auto tx_vx = cmd_vel.linear.x;
+      const auto tx_vy = cmd_vel.linear.y;
+      const auto tx_wz = fixed_cmd_vel_angular_z;
       if (mode.load() == io::GimbalMode::AUTO_AIM && !target_queue.empty()) {
         auto target = target_queue.pop();  // pop()会阻塞等待，但empty()检查可以避免在非自瞄模式下等待
         auto gs = gimbal.state();
@@ -91,13 +99,13 @@ int main(int argc, char * argv[])
 
         gimbal.send(
           plan.control, plan.fire, plan.yaw, plan.pitch,
-          cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
+          tx_vx, tx_vy, tx_wz);
 
         std::this_thread::sleep_for(10ms);
       } else {
         gimbal.send(
           false, false, 0.0f, 0.0f,
-          cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
+          tx_vx, tx_vy, tx_wz);
         std::this_thread::sleep_for(50ms);
       }
     }

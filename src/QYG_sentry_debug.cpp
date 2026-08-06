@@ -20,6 +20,7 @@
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/recorder.hpp"
+#include "tools/yaml.hpp"
 
 const std::string keys =
   "{help h usage ? |      | 输出命令行参数说明}"
@@ -31,7 +32,7 @@ namespace
 {
 constexpr double kRadToDeg = 57.3;
 constexpr int kDefaultGimbalPoseTimeOffsetMs = -1;
-constexpr bool kObservePlannerOnly = true;
+constexpr bool kObservePlannerOnly = true; // 只观察planner输出的目标状态，不观察tracker的测量状态，避免测量状态过于嘈杂
 
 void draw_armor_point_order(cv::Mat & img, const std::vector<cv::Point2f> & points)
 {
@@ -60,6 +61,10 @@ int main(int argc, char * argv[])
     cli.printMessage();
     return 0;
   }
+  auto yaml = tools::load(config_path);
+  const auto fixed_cmd_vel_angular_z = tools::read<double>(yaml, "fixed_cmd_vel_angular_z");
+  tools::logger()->info(
+    "[Nav2Aim] fixed cmd_vel angular.z override: {:.4f}", fixed_cmd_vel_angular_z);
 
   auto aim2nav = std::make_shared<io::Aim2Nav>();
   io::Nav2Aim nav2aim;
@@ -141,15 +146,15 @@ int main(int argc, char * argv[])
 
     while (!quit && rclcpp::ok()) {
       auto cmd_vel = nav2aim.get_latest_state();
+      const double tx_vx = cmd_vel.linear.x;
+      const double tx_vy = cmd_vel.linear.y;
+      const double tx_wz = fixed_cmd_vel_angular_z;
 
       if (mode.load() == io::GimbalMode::AUTO_AIM && !target_queue.empty()) {
         display_queue_empty = false;
         display_hold_last_plan = false;
 
         auto target = target_queue.pop();
-        double tx_vx = cmd_vel.linear.x;
-        double tx_vy = cmd_vel.linear.y;
-        double tx_wz = cmd_vel.angular.z;
         bool target_valid = target.has_value();
         bool plan_control = false;
         bool plan_fire = false;
@@ -231,14 +236,14 @@ int main(int argc, char * argv[])
               "Send [QUEUE_EMPTY_HOLD] -> mode: {}, hold_last: {}, control: false, fire: false, planner_yaw: {:.4f}, planner_pitch: {:.4f}, tx_vx: {:.4f}, tx_vy: {:.4f}, tx_wz: {:.4f}",
               gimbal.str(mode.load()), has_last_valid_plan,
               display_yaw_cmd.load(), display_pitch_cmd.load(),
-              cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
+              tx_vx, tx_vy, tx_wz);
             last_queue_empty_log = now_queue_empty_log;
           }
         }
 
         gimbal.send(
           false, false, 0.0f, 0.0f,
-          cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
+          tx_vx, tx_vy, tx_wz);
         std::this_thread::sleep_for(10ms);
       } else {
         {
@@ -248,13 +253,13 @@ int main(int argc, char * argv[])
             tools::logger()->info(
               "Send [STOP] -> mode: {}, target_queue_empty: {}, tx_vx: {:.4f}, tx_vy: {:.4f}, tx_wz: {:.4f}",
               gimbal.str(mode.load()), target_queue.empty(),
-              cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z);
+              tx_vx, tx_vy, tx_wz);
             last_stop_log = now_stop_log;
           }
         }
         gimbal.send(
           false, false, 0.0f, 0.0f,
-          cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z); 
+          tx_vx, tx_vy, tx_wz);
         display_queue_empty = true;
         display_hold_last_plan = false;
         display_target_sample_valid = false;
