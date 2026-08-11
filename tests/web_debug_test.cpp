@@ -64,6 +64,7 @@ int main()
   {
     auto header = tools::web_debug::make_frame_header(8, 1024, 123456);
     assert(std::memcmp(header.magic, "QYGF", 4) == 0);
+    assert(header.version == 1);
     assert(header.header_size == sizeof(tools::web_debug::FrameHeader));
     assert(tools::web_debug::valid_frame_header(header, 4096));
 
@@ -161,6 +162,9 @@ int main()
       cv::Mat image(32, 32, CV_8UC3, cv::Scalar(1, 2, 3));
       tools::web_debug::OverlaySnapshot overlays;
       assert(publisher.submit(image, {}, overlays, 0.0));
+      cv::Mat moved_image(32, 32, CV_8UC3, cv::Scalar(4, 5, 6));
+      assert(publisher.submit(std::move(moved_image), {}, overlays, 0.01));
+      assert(moved_image.empty());
       for (std::uint64_t frame_id = 1; frame_id <= 50; ++frame_id) {
         tools::web_debug::WebDebugContext context;
         context.system.frame_id = frame_id;

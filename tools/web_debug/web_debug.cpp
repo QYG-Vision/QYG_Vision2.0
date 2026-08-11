@@ -435,6 +435,15 @@ bool AsyncWebDebugPublisher::submit(
     [overlays = std::move(overlays)]() mutable { return std::move(overlays); }, time_seconds);
 }
 
+bool AsyncWebDebugPublisher::submit(
+  cv::Mat && image, WebDebugContext context, OverlaySnapshot overlays,
+  double time_seconds) noexcept
+{
+  return submit(
+    std::move(image), std::move(context),
+    [overlays = std::move(overlays)]() mutable { return std::move(overlays); }, time_seconds);
+}
+
 bool AsyncWebDebugPublisher::submit_status(
   WebDebugContext context, double time_seconds) noexcept
 {
@@ -458,10 +467,31 @@ bool AsyncWebDebugPublisher::submit(
   const cv::Mat & image, WebDebugContext context, OverlayFactory overlay_factory,
   double time_seconds) noexcept
 {
+  try {
+    return submit_owned(
+      image.clone(), std::move(context), std::move(overlay_factory), time_seconds);
+  } catch (...) {
+    failure_count_.fetch_add(1, std::memory_order_relaxed);
+    return false;
+  }
+}
+
+bool AsyncWebDebugPublisher::submit(
+  cv::Mat && image, WebDebugContext context, OverlayFactory overlay_factory,
+  double time_seconds) noexcept
+{
+  return submit_owned(
+    std::move(image), std::move(context), std::move(overlay_factory), time_seconds);
+}
+
+bool AsyncWebDebugPublisher::submit_owned(
+  cv::Mat image, WebDebugContext context, OverlayFactory overlay_factory,
+  double time_seconds) noexcept
+{
   if (image.empty()) return false;
   if (!overlay_factory) return false;
   try {
-    Packet packet{image.clone(), std::move(context), std::move(overlay_factory), time_seconds};
+    Packet packet{std::move(image), std::move(context), std::move(overlay_factory), time_seconds};
     {
       std::lock_guard<std::mutex> lock(queue_mutex_);
       if (stopping_) return false;

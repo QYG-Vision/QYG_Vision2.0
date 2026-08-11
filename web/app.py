@@ -17,6 +17,14 @@ from flask import Flask, Response, jsonify, render_template, request
 FRAME_HEADER = struct.Struct("<4sHHQQII")
 FRAME_MAGIC = b"QYGF"
 FRAME_VERSION = 1
+CURVE_SERIES = (
+    "fps", "frame_age_ms", "detector_wait_ms", "tracker_ms", "planner_ms",
+    "publisher_ms", "armor_count", "detector_queue_depth", "target_x", "target_y",
+    "target_z", "target_vx", "target_vy", "target_vz", "target_yaw",
+    "target_yaw_speed", "target_yaw_cmd", "target_pitch_cmd", "command_yaw",
+    "command_pitch", "gimbal_yaw", "gimbal_pitch", "yaw_error", "pitch_error",
+    "control", "fire",
+)
 
 
 def get_local_ip() -> str:
@@ -98,9 +106,16 @@ def _validate_data(value: dict[str, Any]) -> None:
     times = value.get("time")
     if not isinstance(times, list) or not all(_is_finite_number(item) for item in times):
         raise ValueError("time must be an array of finite numbers")
-    for key, series in value.items():
-        if key in {"schema_version", "time"} or not isinstance(series, list):
-            continue
+    missing = [key for key in CURVE_SERIES if key not in value]
+    if missing:
+        raise ValueError(f"missing curve series: {', '.join(missing)}")
+    unexpected = set(value) - {"schema_version", "time", *CURVE_SERIES}
+    if unexpected:
+        raise ValueError(f"unexpected data fields: {', '.join(sorted(unexpected))}")
+    for key in CURVE_SERIES:
+        series = value.get(key)
+        if not isinstance(series, list):
+            raise ValueError(f"series {key} must be an array")
         if len(series) != len(times):
             raise ValueError(f"series {key} does not match time length")
         if not all(item is None or _is_finite_number(item) for item in series):

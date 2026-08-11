@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from web.app import FRAME_HEADER, create_app, read_consistent_frame
+from web.app import CURVE_SERIES, FRAME_HEADER, create_app, read_consistent_frame
 
 
 @pytest.fixture()
@@ -49,6 +49,15 @@ def write_frame(
         output.write(header)
         output.write(payload)
         output.truncate(size)
+
+
+def valid_data(values=None):
+    values = [] if values is None else values
+    return {
+        "schema_version": 1,
+        "time": values,
+        **{key: list(values) for key in CURVE_SERIES},
+    }
 
 
 def valid_log():
@@ -97,17 +106,17 @@ def test_missing_sources_are_reported_offline(client):
 
 def test_data_trims_equal_length_series_and_clamps_to_ten(paths, client):
     values = list(range(20))
-    write_json(paths["DATA_PATH"], {"schema_version": 1, "time": values, "fps": values, "meta": "qyg"})
+    payload = valid_data(values)
+    write_json(paths["DATA_PATH"], payload)
 
     response = client.get("/data?max_points=1")
 
     assert response.status_code == 200
-    assert response.get_json() == {
-        "schema_version": 1,
-        "time": values[-10:],
-        "fps": values[-10:],
-        "meta": "qyg",
-    }
+    result = response.get_json()
+    assert result["schema_version"] == 1
+    assert result["time"] == values[-10:]
+    assert result["fps"] == values[-10:]
+    assert all(len(result[key]) == 10 for key in CURVE_SERIES)
 
 
 def test_bad_or_stale_json_returns_503(paths, client):
@@ -127,6 +136,8 @@ def test_bad_or_stale_json_returns_503(paths, client):
         {"schema_version": 1, "time": "not-an-array"},
         {"schema_version": 1, "time": [0, 1], "fps": [60]},
         {"schema_version": 1, "time": [0], "fps": ["fast"]},
+        {**valid_data(), "fps": "fast"},
+        {**valid_data(), "unknown": []},
         {"schema_version": True, "time": []},
     ],
 )
@@ -165,7 +176,7 @@ def test_log_rejects_invalid_critical_field_types(paths, client, section, field,
 
 
 def test_json_source_with_future_mtime_is_rejected(paths, client):
-    write_json(paths["DATA_PATH"], {"schema_version": 1, "time": []})
+    write_json(paths["DATA_PATH"], valid_data())
     future = time.time() + 10.0
     os.utime(paths["DATA_PATH"], (future, future))
     assert client.get("/data").status_code == 503
@@ -173,7 +184,7 @@ def test_json_source_with_future_mtime_is_rejected(paths, client):
 
 def test_health_tracks_each_source_and_producer(paths, client):
     write_frame(paths["FRAME_PATH"], size=paths["FRAME_SIZE"])
-    write_json(paths["DATA_PATH"], {"schema_version": 1, "time": []})
+    write_json(paths["DATA_PATH"], valid_data())
     write_json(paths["LOG_PATH"], valid_log())
 
     assert client.get("/health").get_json() == {

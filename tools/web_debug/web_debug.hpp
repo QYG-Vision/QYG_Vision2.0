@@ -223,7 +223,13 @@ public:
     const cv::Mat & image, WebDebugContext context, OverlaySnapshot overlays,
     double time_seconds) noexcept;
   bool submit(
+    cv::Mat && image, WebDebugContext context, OverlaySnapshot overlays,
+    double time_seconds) noexcept;
+  bool submit(
     const cv::Mat & image, WebDebugContext context, OverlayFactory overlay_factory,
+    double time_seconds) noexcept;
+  bool submit(
+    cv::Mat && image, WebDebugContext context, OverlayFactory overlay_factory,
     double time_seconds) noexcept;
   bool submit_status(WebDebugContext context, double time_seconds) noexcept;
   bool ready() const noexcept;
@@ -251,6 +257,9 @@ private:
   std::atomic<std::uint64_t> dropped_count_{0};
   std::atomic<double> last_publish_ms_{0.0};
 
+  bool submit_owned(
+    cv::Mat image, WebDebugContext context, OverlayFactory overlay_factory,
+    double time_seconds) noexcept;
   void worker_loop() noexcept;
 };
 

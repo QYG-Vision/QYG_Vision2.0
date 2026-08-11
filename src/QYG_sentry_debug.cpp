@@ -162,8 +162,7 @@ int main(int argc, char * argv[])
   double current_fps = 0.0;
   std::uint64_t frame_id = 0;
   double last_publisher_ms = 0.0;
-  std::uint64_t last_publish_failure_count = 0;
-  auto last_publish_warning = Clock::time_point{};
+  std::atomic<std::uint64_t> web_submit_failure_count{0};
   auto last_heartbeat_submit = Clock::time_point{};
 
   auto detect_thread = std::thread([&]() {
@@ -220,6 +219,36 @@ int main(int argc, char * argv[])
     }
   });
 
+  std::thread web_warning_thread;
+  if (web_enabled) {
+    web_warning_thread = std::thread([&]() {
+      std::uint64_t observed_publish_failures = 0;
+      std::uint64_t observed_submit_failures = 0;
+      auto last_warning = Clock::time_point{};
+      bool warning_pending = false;
+      while (!quit) {
+        const auto publish_failures = web_publisher->failure_count();
+        const auto submit_failures = web_submit_failure_count.load(std::memory_order_relaxed);
+        if (publish_failures != observed_publish_failures ||
+            submit_failures != observed_submit_failures) {
+          observed_publish_failures = publish_failures;
+          observed_submit_failures = submit_failures;
+          warning_pending = true;
+        }
+        const auto now = Clock::now();
+        if (warning_pending &&
+            (last_warning.time_since_epoch().count() == 0 || now - last_warning >= 5s)) {
+          tools::logger()->warn(
+            "[WebDebug] isolated failure(s): publish={}, submit={}; aiming continues",
+            observed_publish_failures, observed_submit_failures);
+          last_warning = now;
+          warning_pending = false;
+        }
+        std::this_thread::sleep_for(250ms);
+      }
+    });
+  }
+
   auto publish_heartbeat = [&](io::GimbalMode heartbeat_mode, Clock::time_point now) {
     if (!web_enabled ||
         (last_heartbeat_submit.time_since_epoch().count() != 0 &&
@@ -240,14 +269,7 @@ int main(int argc, char * argv[])
     context.gimbal.bullet_speed_mps = gimbal_state.bullet_speed;
     const bool submitted = web_publisher->submit_status(
       std::move(context), std::chrono::duration<double>(now.time_since_epoch()).count());
-    const auto failures = web_publisher->failure_count();
-    if ((!submitted || failures != last_publish_failure_count) &&
-        (last_publish_warning.time_since_epoch().count() == 0 ||
-         now - last_publish_warning >= 5s)) {
-      tools::logger()->warn("[WebDebug] status heartbeat failed; aiming continues");
-      last_publish_warning = now;
-    }
-    last_publish_failure_count = failures;
+    if (!submitted) web_submit_failure_count.fetch_add(1, std::memory_order_relaxed);
     last_heartbeat_submit = now;
   };
 
@@ -299,8 +321,8 @@ int main(int argc, char * argv[])
           current_plan = plan_snapshot;
         }
 
-        const std::optional<auto_aim::Target> current_target =
-          targets.empty() ? std::optional<auto_aim::Target>{} : targets.front();
+        std::optional<auto_aim::Target> current_target;
+        if (!targets.empty()) current_target.emplace(std::move(targets.front()));
         const auto current_target_name = current_target
           ? std::optional<auto_aim::ArmorName>{current_target->name}
           : std::nullopt;
@@ -351,10 +373,11 @@ int main(int argc, char * argv[])
           context.planner.command_pitch_rad = current_plan.plan.pitch;
         }
 
-        const auto overlay_factory =
-          [overlay_armors = armors, current_target, current_plan, solver_snapshot = solver] {
+        auto overlay_factory =
+          [overlay_armors = std::move(armors), overlay_target = std::move(current_target),
+           current_plan, solver_snapshot = solver] {
             return make_overlays(
-              overlay_armors, current_target, current_plan, solver_snapshot);
+              overlay_armors, overlay_target, current_plan, solver_snapshot);
           };
 
         cv::Mat debug_image;
@@ -363,17 +386,10 @@ int main(int argc, char * argv[])
         }
         if (web_enabled) {
           const bool submitted = web_publisher->submit(
-            image, context, overlay_factory,
+            std::move(image), context, std::move(overlay_factory),
             std::chrono::duration<double>(now.time_since_epoch()).count());
           last_publisher_ms = web_publisher->last_publish_ms();
-          const auto failures = web_publisher->failure_count();
-          if ((!submitted || failures != last_publish_failure_count) &&
-              (last_publish_warning.time_since_epoch().count() == 0 ||
-               now - last_publish_warning >= 5s)) {
-            tools::logger()->warn("[WebDebug] publish failed; aiming continues");
-            last_publish_warning = now;
-          }
-          last_publish_failure_count = failures;
+          if (!submitted) web_submit_failure_count.fetch_add(1, std::memory_order_relaxed);
         }
 
         if (display_enabled) {
@@ -383,18 +399,8 @@ int main(int argc, char * argv[])
           const int key = cv::waitKey(1);
           if (key == 'q' || key == 27) break;
         }
-      } catch (const std::exception & error) {
-        if (last_publish_warning.time_since_epoch().count() == 0 ||
-            now - last_publish_warning >= 5s) {
-          tools::logger()->warn("[WebDebug] {}. Aiming continues.", error.what());
-          last_publish_warning = now;
-        }
       } catch (...) {
-        if (last_publish_warning.time_since_epoch().count() == 0 ||
-            now - last_publish_warning >= 5s) {
-          tools::logger()->warn("[WebDebug] unknown failure. Aiming continues.");
-          last_publish_warning = now;
-        }
+        web_submit_failure_count.fetch_add(1, std::memory_order_relaxed);
       }
     } else if (current_mode == io::GimbalMode::IDLE) {
       publish_heartbeat(current_mode, Clock::now());
@@ -412,6 +418,7 @@ int main(int argc, char * argv[])
   quit = true;
   if (detect_thread.joinable()) detect_thread.join();
   if (plan_thread.joinable()) plan_thread.join();
+  if (web_warning_thread.joinable()) web_warning_thread.join();
   gimbal.send(false, false, 0, 0, 0, 0, 0, 0);
   if (display_enabled) cv::destroyAllWindows();
   return 0;
