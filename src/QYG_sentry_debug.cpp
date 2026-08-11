@@ -7,6 +7,7 @@
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <optional>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <thread>
 
 #include "io/camera.hpp"
@@ -150,6 +151,7 @@ int main(int argc, char * argv[])
   tools::ThreadSafeQueue<TargetPacket, true> target_queue(1);
   target_queue.push({std::nullopt, 0});
   std::mutex plan_snapshot_mutex;
+  std::mutex gimbal_send_mutex;
   PlanDebugSnapshot plan_snapshot;
 
   std::atomic<bool> quit = false;
@@ -206,9 +208,13 @@ int main(int argc, char * argv[])
           }
         }
 
-        gimbal.send(
-          plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch,
-          plan.pitch_vel, plan.pitch_acc);
+        {
+          std::lock_guard<std::mutex> lock(gimbal_send_mutex);
+          if (quit) break;
+          gimbal.send(
+            plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch,
+            plan.pitch_vel, plan.pitch_acc);
+        }
         tools::logger()->info(
           "Sent Command - Control: {}, Fire: {}, Yaw: {:.2f}, Pitch: {:.2f}", plan.control,
           plan.fire, plan.yaw, plan.pitch);
@@ -221,32 +227,42 @@ int main(int argc, char * argv[])
 
   std::thread web_warning_thread;
   if (web_enabled) {
-    web_warning_thread = std::thread([&]() {
-      std::uint64_t observed_publish_failures = 0;
-      std::uint64_t observed_submit_failures = 0;
-      auto last_warning = Clock::time_point{};
-      bool warning_pending = false;
-      while (!quit) {
-        const auto publish_failures = web_publisher->failure_count();
-        const auto submit_failures = web_submit_failure_count.load(std::memory_order_relaxed);
-        if (publish_failures != observed_publish_failures ||
-            submit_failures != observed_submit_failures) {
-          observed_publish_failures = publish_failures;
-          observed_submit_failures = submit_failures;
-          warning_pending = true;
+    std::shared_ptr<spdlog::logger> web_failure_logger;
+    try {
+      auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+        "/dev/shm/qyg_web_debug_warnings.log", true);
+      web_failure_logger = std::make_shared<spdlog::logger>("web_debug", std::move(sink));
+    } catch (...) {
+      web_failure_logger.reset();
+    }
+    if (web_failure_logger) {
+      web_warning_thread = std::thread([&, web_failure_logger]() {
+        std::uint64_t observed_publish_failures = 0;
+        std::uint64_t observed_submit_failures = 0;
+        auto last_warning = Clock::time_point{};
+        bool warning_pending = false;
+        while (!quit) {
+          const auto publish_failures = web_publisher->failure_count();
+          const auto submit_failures = web_submit_failure_count.load(std::memory_order_relaxed);
+          if (publish_failures != observed_publish_failures ||
+              submit_failures != observed_submit_failures) {
+            observed_publish_failures = publish_failures;
+            observed_submit_failures = submit_failures;
+            warning_pending = true;
+          }
+          const auto now = Clock::now();
+          if (warning_pending &&
+              (last_warning.time_since_epoch().count() == 0 || now - last_warning >= 5s)) {
+            web_failure_logger->warn(
+              "[WebDebug] isolated failure(s): publish={}, submit={}; aiming continues",
+              observed_publish_failures, observed_submit_failures);
+            last_warning = now;
+            warning_pending = false;
+          }
+          std::this_thread::sleep_for(250ms);
         }
-        const auto now = Clock::now();
-        if (warning_pending &&
-            (last_warning.time_since_epoch().count() == 0 || now - last_warning >= 5s)) {
-          tools::logger()->warn(
-            "[WebDebug] isolated failure(s): publish={}, submit={}; aiming continues",
-            observed_publish_failures, observed_submit_failures);
-          last_warning = now;
-          warning_pending = false;
-        }
-        std::this_thread::sleep_for(250ms);
-      }
-    });
+      });
+    }
   }
 
   auto publish_heartbeat = [&](io::GimbalMode heartbeat_mode, Clock::time_point now) {
@@ -405,6 +421,7 @@ int main(int argc, char * argv[])
     } else if (current_mode == io::GimbalMode::IDLE) {
       publish_heartbeat(current_mode, Clock::now());
       if (++idle_counter >= 10) {
+        std::lock_guard<std::mutex> lock(gimbal_send_mutex);
         gimbal.send(false, false, 0, 0, 0, 0, 0, 0);
         idle_counter = 0;
       }
@@ -416,10 +433,13 @@ int main(int argc, char * argv[])
   }
 
   quit = true;
+  {
+    std::lock_guard<std::mutex> lock(gimbal_send_mutex);
+    gimbal.send(false, false, 0, 0, 0, 0, 0, 0);
+  }
   if (detect_thread.joinable()) detect_thread.join();
   if (plan_thread.joinable()) plan_thread.join();
   if (web_warning_thread.joinable()) web_warning_thread.join();
-  gimbal.send(false, false, 0, 0, 0, 0, 0, 0);
   if (display_enabled) cv::destroyAllWindows();
   return 0;
 }

@@ -44,6 +44,8 @@ http://车载电脑IP:9000
 
 `--no-web` 完全跳过共享内存、JPEG 编码和调试图渲染，用于与 Web 开启状态进行同输入性能对照。
 
+Web 发布异常由独立线程限频写入 `/dev/shm/qyg_web_debug_warnings.log`，不使用 Planner 控制线程的同步日志 sink。
+
 ## 无相机端到端验证
 
 构建并运行合成发布器：
