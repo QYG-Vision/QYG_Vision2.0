@@ -41,18 +41,14 @@ body {
 }
 
 .brand-mark {
-  width: 58px;
+  width: 72px;
   height: 58px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--cyan);
-  color: #fff;
   background: #020609;
-  font-weight: 900;
-  font-size: 14px;
-  letter-spacing: -1px;
   box-shadow: 0 0 22px rgba(66, 229, 255, 0.18);
 }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 .brand-copy h1 { margin: 0; font-size: 20px; letter-spacing: 0.08em; }
 .brand-copy p { margin: 5px 0 0; color: var(--muted); font: 12px ui-monospace, monospace; }
@@ -144,7 +140,7 @@ body {
 
 @media (max-width: 560px) {
   .topbar { padding: 10px; gap: 10px; }
-  .brand-mark { width: 48px; height: 48px; }
+  .brand-mark { width: 60px; height: 48px; }
   .brand-copy h1 { font-size: 16px; }
   .brand-copy p { font-size: 10px; }
   .status-row { margin-left: 0; }

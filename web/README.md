@@ -123,6 +123,12 @@ cmake -S . -B build -Dfmt_DIR=/usr/lib/x86_64-linux-gnu/cmake/fmt
 
 ## 品牌资产
 
-页面当前提供庆园阁文字标识和离线 favicon。正式“庆园阁战队”原始 Logo 到位后，应保留原图并导出页眉和 favicon 版本到 `web/static/img/`；不得加入其他战队的名称或 Logo。
+“庆园阁战队”品牌资产位于 `web/static/img/`：
+
+- `qyg-team-logo-original.jpg`：用户提供的原始文件，逐字节保留。
+- `qyg-team-logo-header.webp`：页眉裁切缩放版本。
+- `qyg-team-favicon.png`：由原图上方标志裁切生成的 favicon。
+
+不得加入其他战队的名称或 Logo，也不得用生成图替换原始资产。
 
 本功能参考 Awakening 的四宫格调试布局及共享内存传输思路。第三方版权见仓库根目录 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

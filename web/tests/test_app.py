@@ -231,5 +231,10 @@ def test_index_is_qyg_branded_and_offline_capable(client):
     assert "庆园阁视觉调试平台" in body
     assert all(label in body for label in ("VIDEO", "DATA", "LOG", "PRODUCER"))
     assert "chart.umd.min.js" in body
+    assert "qyg-team-logo-header.webp" in body
+    assert "qyg-team-favicon.png" in body
     assert "cdn.jsdelivr" not in body
     assert client.get("/static/vendor/chart.umd.min.js").status_code == 200
+    assert client.get("/static/img/qyg-team-logo-original.jpg").status_code == 200
+    assert client.get("/static/img/qyg-team-logo-header.webp").status_code == 200
+    assert client.get("/static/img/qyg-team-favicon.png").status_code == 200
