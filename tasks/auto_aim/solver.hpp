@@ -4,6 +4,7 @@
 #include <Eigen/Dense>  // 必须在opencv2/core/eigen.hpp上面
 #include <Eigen/Geometry>
 #include <opencv2/core/eigen.hpp>
+#include <optional>
 
 #include "armor.hpp"
 
@@ -26,6 +27,9 @@ public:
   double oupost_reprojection_error(Armor armor, const double & picth);
 
   std::vector<cv::Point2f> world2pixel(const std::vector<cv::Point3f> & worldPoints);
+
+  std::vector<std::optional<cv::Point2f>> project_world_points(
+    const std::vector<Eigen::Vector3d> & world_points) const;
 
 private:
   cv::Mat camera_matrix_;

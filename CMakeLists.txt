@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16.3)
 
 project(rm_vision)
 
+enable_testing()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Release)
@@ -126,6 +127,14 @@ target_link_libraries(planner_test ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim too
 
 add_executable(planner_test_offline tests/planner_test_offline.cpp)
 target_link_libraries(planner_test_offline ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim tools io)
+
+add_executable(web_debug_test tests/web_debug_test.cpp)
+target_compile_options(web_debug_test PRIVATE -UNDEBUG)
+target_link_libraries(web_debug_test ${OpenCV_LIBS} fmt::fmt yaml-cpp nlohmann_json::nlohmann_json auto_aim tools)
+add_test(NAME web_debug_cpp COMMAND web_debug_test WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+add_executable(qyg_web_debug_synthetic tools/web_debug/synthetic_publisher.cpp)
+target_link_libraries(qyg_web_debug_synthetic ${OpenCV_LIBS} fmt::fmt nlohmann_json::nlohmann_json tools)
 
 
 # 检查 ROS 环境

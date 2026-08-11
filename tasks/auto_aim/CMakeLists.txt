@@ -23,6 +23,7 @@ add_library(auto_aim OBJECT
     multithread/commandgener.cpp
     multithread/mt_detector.cpp
     planner/planner.cpp
+    web_debug_adapter.cpp
 )
 
 target_link_libraries(auto_aim io openvino::runtime tinympcstatic)

@@ -12,4 +12,5 @@ add_library(tools OBJECT
     logger.cpp
     pid.cpp
     crc.cpp
+    web_debug/web_debug.cpp
 )

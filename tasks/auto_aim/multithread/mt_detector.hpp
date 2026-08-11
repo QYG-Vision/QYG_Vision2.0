@@ -26,6 +26,8 @@ public:
 
   std::tuple<cv::Mat, std::list<Armor>, std::chrono::steady_clock::time_point> debug_pop();
 
+  std::size_t queue_size() const { return queue_.size(); }
+
 
 private:
   ov::Core core_;

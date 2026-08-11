@@ -290,4 +290,37 @@ std::vector<cv::Point2f> Solver::world2pixel(const std::vector<cv::Point3f> & wo
   cv::projectPoints(valid_world_points, rvec, tvec, camera_matrix_, distort_coeffs_, pixelPoints);
   return pixelPoints;
 }
+
+std::vector<std::optional<cv::Point2f>> Solver::project_world_points(
+  const std::vector<Eigen::Vector3d> & world_points) const
+{
+  const Eigen::Matrix3d R_world2camera =
+    R_camera2gimbal_.transpose() * R_gimbal2world_.transpose();
+  const Eigen::Vector3d t_world2camera = -R_camera2gimbal_.transpose() * t_camera2gimbal_;
+
+  cv::Mat rotation_matrix;
+  cv::eigen2cv(R_world2camera, rotation_matrix);
+  cv::Vec3d rotation_vector;
+  cv::Rodrigues(rotation_matrix, rotation_vector);
+  const cv::Vec3d translation_vector(
+    t_world2camera.x(), t_world2camera.y(), t_world2camera.z());
+
+  std::vector<std::optional<cv::Point2f>> result;
+  result.reserve(world_points.size());
+  for (const auto & world_point : world_points) {
+    const Eigen::Vector3d camera_point = R_world2camera * world_point + t_world2camera;
+    if (camera_point.z() <= 1e-6) {
+      result.push_back(std::nullopt);
+      continue;
+    }
+    std::vector<cv::Point2f> projected;
+    cv::projectPoints(
+      std::vector<cv::Point3f>{{
+        static_cast<float>(world_point.x()), static_cast<float>(world_point.y()),
+        static_cast<float>(world_point.z())}},
+      rotation_vector, translation_vector, camera_matrix_, distort_coeffs_, projected);
+    result.push_back(projected.front());
+  }
+  return result;
+}
 }  // namespace auto_aim
