@@ -1,6 +1,10 @@
 .vscode/
 .github/
 build/
+build-*/
+__pycache__/
+*.py[cod]
+.venv/
 Camera/
 logs/
 assets/img_with_q/

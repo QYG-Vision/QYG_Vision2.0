@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>庆园阁视觉调试平台</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <script defer src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark" aria-label="庆园阁战队文字标识">庆园阁</div>
+      <div class="brand-copy">
+        <h1>庆园阁视觉调试平台</h1>
+        <p>{{ server_url }} · 只读局域网调试</p>
+      </div>
+      <div class="status-row" aria-label="数据源状态">
+        <span id="video-status" class="status-pill offline">VIDEO</span>
+        <span id="data-status" class="status-pill offline">DATA</span>
+        <span id="log-status" class="status-pill offline">LOG</span>
+        <span id="producer-status" class="status-pill offline">PRODUCER</span>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="panel video-panel">
+        <div class="panel-title">
+          <div><span class="eyebrow">VISION</span><h2>实时画面</h2></div>
+          <button id="fullscreen-button" class="ghost-button" type="button">全屏</button>
+        </div>
+        <div id="video-shell" class="video-shell offline">
+          <img id="video-stream" alt="QYG 调试视频流" decoding="async" />
+          <div id="video-placeholder" class="offline-placeholder">等待车载视觉进程…</div>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-title">
+          <div><span class="eyebrow">SNAPSHOT</span><h2>结构化状态</h2></div>
+          <span id="log-updated" class="muted">未连接</span>
+        </div>
+        <div id="json-tree" class="json-tree">
+          <div class="offline-placeholder">等待状态数据…</div>
+        </div>
+      </section>
+
+      <section class="panel chart-panel">
+        <div class="panel-title">
+          <div><span class="eyebrow">TELEMETRY</span><h2>多曲线总图</h2></div>
+          <label class="points-control">点数 <input id="max-points" type="number" min="10" max="600" step="10" value="200" /></label>
+        </div>
+        <div id="series-controls" class="series-controls" aria-label="曲线选择"></div>
+        <div class="chart-shell">
+          <canvas id="main-chart"></canvas>
+          <div id="chart-placeholder" class="offline-placeholder">等待曲线数据…</div>
+        </div>
+      </section>
+
+      <section class="panel detail-panel">
+        <div class="panel-title">
+          <div><span class="eyebrow">FOCUS</span><h2>独立曲线</h2></div>
+          <select id="detail-series" aria-label="独立曲线字段"></select>
+        </div>
+        <div class="chart-shell">
+          <canvas id="detail-chart"></canvas>
+          <div id="detail-placeholder" class="offline-placeholder">等待曲线数据…</div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
