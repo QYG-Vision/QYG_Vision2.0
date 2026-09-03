@@ -23,6 +23,7 @@ Target::Target(
 {
   auto r = radius;
   priority = armor.priority;
+  // Initialize target state directly from world-frame observation.
   const Eigen::VectorXd & xyz = armor.xyz_in_world;
   const Eigen::VectorXd & ypr = armor.ypr_in_world;
 
@@ -221,6 +222,7 @@ void Target::update_ypda(const Armor & armor, int id)
 
   const Eigen::VectorXd & ypd = armor.ypd_in_world;
   const Eigen::VectorXd & ypr = armor.ypr_in_world;
+  // EKF measurement z is fused in world frame to avoid gimbal self-rotation apparent motion.
   Eigen::VectorXd z{{ypd[0], ypd[1], ypd[2], ypr[0]}};  //获得观测量
 
   ekf_.update(z, H, R, h, z_subtract);

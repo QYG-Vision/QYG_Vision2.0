@@ -92,7 +92,7 @@ gimbal.send(
 
 如果还没有收到 `/cmd_vel`，`latest_state_` 默认全 0，车辆不会动。
 
-注意：`Nav2Aim` 缓存和 `Gimbal::send()` 调用参数保留导航原始值，便于日志和 `/cmd_vel_real` 对比；真正发给电控的 QY 下行帧在 `io::gimbal_protocol::make_send_frame()` 中统一编码为 `-linear.x`、`-linear.y`、`-angular.z`。
+注意：`Nav2Aim` 缓存和 `Gimbal::send()` 调用参数保留导航原始值，便于日志和 `/cmd_vel_real` 对比；真正发给电控的 QY 下行帧在 `io::gimbal_protocol::make_send_frame()` 中统一写入 `-linear.x`、`-linear.y`、`-angular.z` 的 `float32` 值。
 
 ## 3. 视觉到机器人描述: `/serial/gimbal_joint_state`
 
@@ -197,7 +197,7 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
 "{linear: {x: 0.3, y: -0.2, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.1}}" -r 10
 ```
 
-视觉日志中的 `tx_vx/tx_vy/tx_wz` 仍是 `Nav2Aim` 读到的原始值，应接近 `0.3/-0.2/0.1`；QY 下行帧实际发给电控的三轴编码值为 `-0.3/0.2/-0.1`。
+视觉日志中的 `tx_vx/tx_vy/tx_wz` 仍是 `Nav2Aim` 读到的原始值，应接近 `0.3/-0.2/0.1`；QY 下行帧实际发给电控的三轴 float32 值为 `-0.3/0.2/-0.1`。
 
 验证 `/cmd_vel_real`：
 

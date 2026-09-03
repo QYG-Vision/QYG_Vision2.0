@@ -14,8 +14,10 @@ class Solver
 public:
   explicit Solver(const std::string & config_path);
 
+  // Rotation from gimbal frame to IMU absolute/world-like stable frame.
   Eigen::Matrix3d R_gimbal2world() const;
 
+  // Update gimbal->world rotation from IMU quaternion at current timestamp.
   void set_R_gimbal2world(const Eigen::Quaterniond & q);
 
   void set_R_gimbal2world(const Eigen::Vector3d & euler);
