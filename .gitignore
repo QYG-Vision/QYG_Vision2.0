@@ -1,9 +1,16 @@
 .vscode/
 .github/
 build/
+Build/
+build-*/
+.worktrees/
+__pycache__/
+*.py[cod]
+.venv/
 Camera/
 logs/
 assets/img_with_q/
+assets/delay_test/
 records/
 records_auto_buff_big/
 records_new/
