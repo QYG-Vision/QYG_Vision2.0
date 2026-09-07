@@ -1,5 +1,7 @@
 #include "mt_detector.hpp"
 
+#include <utility>
+
 #include <yaml-cpp/yaml.h>
 
 namespace auto_aim
@@ -42,6 +44,12 @@ MultiThreadDetector::MultiThreadDetector(const std::string & config_path, bool d
 
 void MultiThreadDetector::push(cv::Mat img, std::chrono::steady_clock::time_point t)
 {
+  push(std::move(img), t, 0);
+}
+
+void MultiThreadDetector::push(
+  cv::Mat img, std::chrono::steady_clock::time_point t, std::uint64_t capture_generation)
+{
   auto x_scale = static_cast<double>(640) / img.rows;
   auto y_scale = static_cast<double>(640) / img.cols;
   auto scale = std::min(x_scale, y_scale);
@@ -61,12 +69,13 @@ void MultiThreadDetector::push(cv::Mat img, std::chrono::steady_clock::time_poin
   // Keep inference inside this worker thread so OpenVINO never reads from
   // the local input buffer after it has gone out of scope.
   infer_request.infer();
-  queue_.push({img.clone(), t, std::move(infer_request)});
+  queue_.push({img.clone(), t, std::move(infer_request), capture_generation});
 }
 
 std::tuple<std::list<Armor>, std::chrono::steady_clock::time_point> MultiThreadDetector::pop()
 {
-  auto [img, t, infer_request] = queue_.pop();
+  auto [img, t, infer_request, capture_generation] = queue_.pop();
+  static_cast<void>(capture_generation);
   infer_request.wait();
 
   // postprocess
@@ -84,7 +93,34 @@ std::tuple<std::list<Armor>, std::chrono::steady_clock::time_point> MultiThreadD
 std::tuple<cv::Mat, std::list<Armor>, std::chrono::steady_clock::time_point>
 MultiThreadDetector::debug_pop()
 {
-  auto [img, t, infer_request] = queue_.pop();
+  auto [img, armors, timestamp, capture_generation] = postprocess_debug_result(queue_.pop());
+  static_cast<void>(capture_generation);
+  return {std::move(img), std::move(armors), timestamp};
+}
+
+bool MultiThreadDetector::debug_pop_for(
+  cv::Mat & img, std::list<Armor> & armors, std::chrono::steady_clock::time_point & timestamp,
+  std::chrono::milliseconds timeout)
+{
+  std::uint64_t ignored_generation = 0;
+  return debug_pop_for(img, armors, timestamp, ignored_generation, timeout);
+}
+
+bool MultiThreadDetector::debug_pop_for(
+  cv::Mat & img, std::list<Armor> & armors, std::chrono::steady_clock::time_point & timestamp,
+  std::uint64_t & capture_generation, std::chrono::milliseconds timeout)
+{
+  PendingResult result;
+  if (!queue_.pop_for(result, timeout)) return false;
+
+  std::tie(img, armors, timestamp, capture_generation) =
+    postprocess_debug_result(std::move(result));
+  return true;
+}
+
+MultiThreadDetector::DebugResult MultiThreadDetector::postprocess_debug_result(PendingResult result)
+{
+  auto [img, t, infer_request, capture_generation] = std::move(result);
   infer_request.wait();
 
   // postprocess
@@ -96,7 +132,7 @@ MultiThreadDetector::debug_pop()
   auto scale = std::min(x_scale, y_scale);
   auto armors = yolo_.postprocess(scale, output, img, 0);  //暂不支持ROI
 
-  return {img, std::move(armors), t};
+  return {img, std::move(armors), t, capture_generation};
 }
 
 }  // namespace multithread

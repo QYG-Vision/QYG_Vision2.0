@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -16,10 +17,15 @@ namespace io
 class HikRobot : public CameraBase
 {
 public:
-  HikRobot(double exposure_ms, double gain, const std::string & vid_pid);
-  HikRobot(double exposure_ms,double gain);
+  HikRobot(
+    double exposure_ms, double gain, const std::string & vid_pid,
+    std::optional<double> gamma = std::nullopt);
+  HikRobot(double exposure_ms, double gain, std::optional<double> gamma = std::nullopt);
   ~HikRobot() override;
   void read(cv::Mat & img, std::chrono::steady_clock::time_point & timestamp) override;
+  bool read_for(
+    cv::Mat & img, std::chrono::steady_clock::time_point & timestamp,
+    std::chrono::milliseconds timeout) override;
 
 private:
   struct CameraData
@@ -30,6 +36,7 @@ private:
 
   double exposure_us_;
   double gain_;
+  std::optional<double> gamma_;
 
   std::thread daemon_thread_;
   std::atomic<bool> daemon_quit_{false};
@@ -38,7 +45,8 @@ private:
   std::thread capture_thread_;
   std::atomic<bool> capturing_{false};
   std::atomic<bool> capture_quit_{false};
-  tools::ThreadSafeQueue<CameraData> queue_;
+  // Keep only the newest frame so a slow consumer never resumes from stale imagery.
+  tools::ThreadSafeQueue<CameraData, true> queue_;
 
   int vid_, pid_;
 
@@ -48,7 +56,9 @@ private:
 
   void set_float_value(const std::string & name, double value);
   void log_float_value(const std::string & name) const;
+  void set_bool_value(const std::string & name, bool value);
   void set_enum_value(const std::string & name, unsigned int value);
+  void configure_image_parameters();
 
   void set_vid_pid(const std::string & vid_pid);
   void reset_usb() const;

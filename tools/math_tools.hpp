@@ -9,6 +9,15 @@ namespace tools
 // 将弧度值限制在(-pi, pi]
 double limit_rad(double angle);
 
+// 从 current 到 target 的最短有符号角差，范围为 (-pi, pi]
+double angle_difference(double target, double current);
+
+// 沿最短圆弧在两个弧度角之间插值，ratio 通常位于 [0, 1]
+double interpolate_angle(double from, double to, double ratio);
+
+// 仅用于显示：把内部 yaw 的 +/-pi 分界位置映射为显示坐标的 0
+double yaw_with_zero_at_wrap_boundary(double internal_yaw);
+
 // 四元数转欧拉角
 // x = 0, y = 1, z = 2
 // e.g. 先绕z轴旋转，再绕y轴旋转，最后绕x轴旋转：axis0=2, axis1=1, axis2=0

@@ -16,7 +16,7 @@ public:
 
   ~Plotter();
 
-  void plot(const nlohmann::json & json);
+  bool plot(const nlohmann::json & json);
 
 private:
   int socket_;

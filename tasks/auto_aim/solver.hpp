@@ -6,6 +6,7 @@
 #include <opencv2/core/eigen.hpp>
 
 #include "armor.hpp"
+#include "io/gimbal_orientation.hpp"
 
 namespace auto_aim
 {
@@ -15,9 +16,11 @@ public:
   explicit Solver(const std::string & config_path);
 
   Eigen::Matrix3d R_gimbal2world() const;
+  Eigen::Vector3d camera_to_world(const Eigen::Vector3d & point_in_camera) const;
 
   void set_R_gimbal2world(const Eigen::Quaterniond & q);
   void set_R_gimbal2world(const Eigen::Quaterniond & q, double feedback_yaw_deg);
+  void set_R_gimbal2world(const io::GimbalFeedbackSample & feedback);
 
   void solve(Armor & armor) const;
 

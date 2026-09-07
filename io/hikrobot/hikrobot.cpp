@@ -8,8 +8,16 @@ using namespace std::chrono_literals;
 
 namespace io
 {
-HikRobot::HikRobot(double exposure_ms, double gain, const std::string & vid_pid)
-: exposure_us_(exposure_ms * 1e3), gain_(gain), queue_(1), daemon_quit_(false), vid_(-1), pid_(-1), handle_(nullptr)
+HikRobot::HikRobot(
+  double exposure_ms, double gain, const std::string & vid_pid, std::optional<double> gamma)
+: exposure_us_(exposure_ms * 1e3),
+  gain_(gain),
+  gamma_(gamma),
+  queue_(1),
+  daemon_quit_(false),
+  vid_(-1),
+  pid_(-1),
+  handle_(nullptr)
 {
   set_vid_pid(vid_pid);
   if (libusb_init(NULL)) tools::logger()->warn("Unable to init libusb!");
@@ -36,23 +44,27 @@ HikRobot::HikRobot(double exposure_ms, double gain, const std::string & vid_pid)
   }};
 }
 
-HikRobot::HikRobot(double exposure_ms, double gain)
-: exposure_us_(exposure_ms * 1e3), gain_(gain), queue_(1), daemon_quit_(false), vid_(-1), pid_(-1), handle_(nullptr)
+HikRobot::HikRobot(double exposure_ms, double gain, std::optional<double> gamma)
+: exposure_us_(exposure_ms * 1e3),
+  gain_(gain),
+  gamma_(gamma),
+  queue_(1),
+  daemon_quit_(false),
+  vid_(-1),
+  pid_(-1),
+  handle_(nullptr)
 {
-  daemon_thread_ = std::thread([this]
-  {
+  daemon_thread_ = std::thread([this] {
     tools::logger()->info("HikRobot's daemon thread started.");
     capture_start_GigE();
-    while (!daemon_quit_) 
-    {
+    while (!daemon_quit_) {
       std::this_thread::sleep_for(100ms);
 
       if (capturing_) continue;
 
       capture_stop();
       capture_start_GigE();
-      for (int i = 0; i < 5 && !capturing_; ++i) 
-      {
+      for (int i = 0; i < 5 && !capturing_; ++i) {
         std::this_thread::sleep_for(100ms);
       }
     }
@@ -74,6 +86,18 @@ void HikRobot::read(cv::Mat & img, std::chrono::steady_clock::time_point & times
 
   img = data.img;
   timestamp = data.timestamp;
+}
+
+bool HikRobot::read_for(
+  cv::Mat & img, std::chrono::steady_clock::time_point & timestamp,
+  std::chrono::milliseconds timeout)
+{
+  CameraData data;
+  if (!queue_.pop_for(data, timeout)) return false;
+
+  img = data.img;
+  timestamp = data.timestamp;
+  return true;
 }
 
 void HikRobot::capture_start()
@@ -117,14 +141,7 @@ void HikRobot::capture_start()
     return;
   }
 
-  set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
-  set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
-  set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
-  set_enum_value("TriggerMode", MV_TRIGGER_MODE_OFF);
-  set_float_value("ExposureTime", exposure_us_);
-  set_float_value("Gain", gain_);
-  log_float_value("ExposureTime");
-  log_float_value("Gain");
+  configure_image_parameters();
   MV_CC_SetFrameRate(handle_, 150);
 
   ret = MV_CC_StartGrabbing(handle_);
@@ -182,7 +199,9 @@ void HikRobot::capture_start()
       cv::cvtColor(img, dst_image, type_map.at(pixel_type));
       img = dst_image;
 
-      queue_.push({img, timestamp});
+      // Detach the queued frame from all SDK/OpenCV buffers before releasing the SDK frame.
+      // The detector owns this copy for the rest of its asynchronous lifetime.
+      queue_.push({dst_image.clone(), timestamp});
 
       ret = MV_CC_FreeImageBuffer(handle_, &raw);
       if (ret != MV_OK) {
@@ -210,45 +229,34 @@ void HikRobot::capture_start_GigE()
 
   MV_CC_DEVICE_INFO_LIST device_list;
   ret = MV_CC_EnumDevices(MV_GIGE_DEVICE, &device_list);
-  if (ret != MV_OK) 
-  {
+  if (ret != MV_OK) {
     tools::logger()->warn("MV_CC_EnumDevices failed: {:#x}", ret);
     handle_ = nullptr;
     return;
   }
 
-  if (device_list.nDeviceNum == 0) 
-  {
+  if (device_list.nDeviceNum == 0) {
     tools::logger()->warn("Not found camera!");
     handle_ = nullptr;
     return;
   }
 
   ret = MV_CC_CreateHandle(&handle_, device_list.pDeviceInfo[0]);
-  if (ret != MV_OK) 
-  {
+  if (ret != MV_OK) {
     tools::logger()->warn("MV_CC_CreateHandle failed: {:#x}", ret);
     handle_ = nullptr;
     return;
   }
 
   ret = MV_CC_OpenDevice(handle_);
-  if (ret != MV_OK) 
-  {
+  if (ret != MV_OK) {
     tools::logger()->warn("MV_CC_OpenDevice failed: {:#x}", ret);
     MV_CC_DestroyHandle(handle_);
     handle_ = nullptr;
     return;
   }
 
-  set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
-  set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
-  set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
-  set_enum_value("TriggerMode", MV_TRIGGER_MODE_OFF);
-  set_float_value("ExposureTime", exposure_us_);
-  set_float_value("Gain", gain_);
-  log_float_value("ExposureTime");
-  log_float_value("Gain");
+  configure_image_parameters();
   MV_CC_SetFrameRate(handle_, 150);
 
   ret = MV_CC_StartGrabbing(handle_);
@@ -260,8 +268,7 @@ void HikRobot::capture_start_GigE()
     return;
   }
 
-  capture_thread_ = std::thread{[this] 
-  {
+  capture_thread_ = std::thread{[this] {
     tools::logger()->info("HikRobot's capture thread started.");
 
     capturing_ = true;
@@ -269,16 +276,14 @@ void HikRobot::capture_start_GigE()
     MV_FRAME_OUT raw;
     // MV_CC_PIXEL_CONVERT_PARAM cvt_param;
 
-    while (!capture_quit_) 
-    {
+    while (!capture_quit_) {
       std::this_thread::sleep_for(1ms);
 
       unsigned int ret;
       unsigned int nMsec = 1000;
 
       ret = MV_CC_GetImageBuffer(handle_, &raw, nMsec);
-      if (ret != MV_OK) 
-      {
+      if (ret != MV_OK) {
         tools::logger()->warn("MV_CC_GetImageBuffer failed: {:#x}", ret);
         break;
       }
@@ -309,7 +314,9 @@ void HikRobot::capture_start_GigE()
       cv::cvtColor(img, dst_image, type_map.at(pixel_type));
       img = dst_image;
 
-      queue_.push({img, timestamp});
+      // Detach the queued frame from all SDK/OpenCV buffers before releasing the SDK frame.
+      // The detector owns this copy for the rest of its asynchronous lifetime.
+      queue_.push({dst_image.clone(), timestamp});
 
       ret = MV_CC_FreeImageBuffer(handle_, &raw);
       if (ret != MV_OK) {
@@ -377,8 +384,33 @@ void HikRobot::log_float_value(const std::string & name) const
   }
 
   tools::logger()->info(
-    "[HikRobot] {} current:{:.3f} range:[{:.3f}, {:.3f}]",
-    name, value.fCurValue, value.fMin, value.fMax);
+    "[HikRobot] {} current:{:.3f} range:[{:.3f}, {:.3f}]", name, value.fCurValue, value.fMin,
+    value.fMax);
+}
+
+void HikRobot::set_bool_value(const std::string & name, bool value)
+{
+  const auto ret = MV_CC_SetBoolValue(handle_, name.c_str(), value);
+  if (ret != MV_OK) {
+    tools::logger()->warn("MV_CC_SetBoolValue(\"{}\", {}) failed: {:#x}", name, value, ret);
+  }
+}
+
+void HikRobot::configure_image_parameters()
+{
+  set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
+  set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
+  set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
+  set_enum_value("TriggerMode", MV_TRIGGER_MODE_OFF);
+  set_float_value("ExposureTime", exposure_us_);
+  set_float_value("Gain", gain_);
+  if (gamma_) {
+    set_bool_value("GammaEnable", true);
+    set_float_value("Gamma", *gamma_);
+  }
+  log_float_value("ExposureTime");
+  log_float_value("Gain");
+  if (gamma_) log_float_value("Gamma");
 }
 
 void HikRobot::set_enum_value(const std::string & name, unsigned int value)

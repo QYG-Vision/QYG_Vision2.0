@@ -17,13 +17,17 @@ Plotter::Plotter(std::string host, uint16_t port)
 
 Plotter::~Plotter() { ::close(socket_); }
 
-void Plotter::plot(const nlohmann::json & json)
+bool Plotter::plot(const nlohmann::json & json)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto data = json.dump();
-  ::sendto(
+  if (socket_ < 0) return false;
+  // 纯 JSON 文本（PlotJuggler UDP Server 标准格式，对应"不勾选 Multi-type dispatch"；
+  // 与官方 udp_client.py / scripts/plotjuggler_test.py 的发送格式保持一致）
+  const auto data = json.dump();
+  const auto sent = ::sendto(
     socket_, data.c_str(), data.length(), 0, reinterpret_cast<sockaddr *>(&destination_),
     sizeof(destination_));
+  return sent == static_cast<ssize_t>(data.length());
 }
 
 }  // namespace tools

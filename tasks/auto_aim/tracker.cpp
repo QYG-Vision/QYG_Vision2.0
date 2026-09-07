@@ -2,10 +2,23 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <limits>
+#include <stdexcept>
 #include <tuple>
 
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
+
+namespace
+{
+auto_aim::Color parse_enemy_color(const std::string & enemy_color)
+{
+  if (enemy_color == "red") return auto_aim::Color::red;
+  if (enemy_color == "blue") return auto_aim::Color::blue;
+  throw std::invalid_argument{
+    "enemy_color must be \"red\" or \"blue\", got \"" + enemy_color + "\""};
+}
+}  // namespace
 
 namespace auto_aim
 {
@@ -19,23 +32,118 @@ Tracker::Tracker(const std::string & config_path, Solver & solver)
   omni_target_priority_{ArmorPriority::fifth}
 {
   auto yaml = YAML::LoadFile(config_path);
-  // enemy_color_ = (yaml["enemy_color"].as<std::string>() == "red") ? Color::red : Color::blue;
+  if (!yaml["enemy_color"]) {
+    throw std::invalid_argument{"Missing required config key: enemy_color"};
+  }
+  enemy_color_ = parse_enemy_color(yaml["enemy_color"].as<std::string>());
   min_detect_count_ = yaml["min_detect_count"].as<int>();
   max_temp_lost_count_ = yaml["max_temp_lost_count"].as<int>();
   outpost_max_temp_lost_count_ = yaml["outpost_max_temp_lost_count"].as<int>();
   normal_temp_lost_count_ = max_temp_lost_count_;
+  max_match_distance_ = yaml["max_match_distance"] ? yaml["max_match_distance"].as<double>() : 0.5;
+  max_match_yaw_diff_ = yaml["max_match_yaw_diff"] ? yaml["max_match_yaw_diff"].as<double>() : 0.7;
+  armor_switch_confirm_frames_ = yaml["armor_switch_confirm_frames"]
+                                   ? yaml["armor_switch_confirm_frames"].as<int>()
+                                   : armor_switch_confirm_frames_;
+  control_max_linear_speed_mps_ = yaml["control_max_linear_speed_mps"]
+                                    ? yaml["control_max_linear_speed_mps"].as<double>()
+                                    : control_max_linear_speed_mps_;
+  control_max_angular_speed_radps_ = yaml["control_max_angular_speed_radps"]
+                                       ? yaml["control_max_angular_speed_radps"].as<double>()
+                                       : control_max_angular_speed_radps_;
+  control_max_recent_nis_fail_rate_ = yaml["control_max_recent_nis_fail_rate"]
+                                        ? yaml["control_max_recent_nis_fail_rate"].as<double>()
+                                        : control_max_recent_nis_fail_rate_;
+  TuoLuoConfig tuoluo_config;
+  if (yaml["tuoluo_enter_speed_radps"])
+    tuoluo_config.enter_speed_radps = yaml["tuoluo_enter_speed_radps"].as<double>();
+  if (yaml["tuoluo_exit_speed_radps"])
+    tuoluo_config.exit_speed_radps = yaml["tuoluo_exit_speed_radps"].as<double>();
+  if (yaml["tuoluo_enter_duration_s"])
+    tuoluo_config.enter_duration_s = yaml["tuoluo_enter_duration_s"].as<double>();
+  if (yaml["tuoluo_exit_duration_s"])
+    tuoluo_config.exit_duration_s = yaml["tuoluo_exit_duration_s"].as<double>();
+  if (yaml["tuoluo_filter_alpha"])
+    tuoluo_config.filter_alpha = yaml["tuoluo_filter_alpha"].as<double>();
+  tuoluo_detector_ = TuoLuoDetector{tuoluo_config};
+  if (
+    max_match_distance_ <= 0.0 || max_match_yaw_diff_ <= 0.0 ||
+    armor_switch_confirm_frames_ < 1) {
+    throw std::invalid_argument{
+      "max_match_distance/max_match_yaw_diff must be positive and "
+      "armor_switch_confirm_frames must be at least 1"};
+  }
+  if (
+    control_max_linear_speed_mps_ <= 0.0 || control_max_angular_speed_radps_ <= 0.0 ||
+    control_max_recent_nis_fail_rate_ < 0.0 || control_max_recent_nis_fail_rate_ > 1.0) {
+    throw std::invalid_argument{"invalid control safety gate parameters"};
+  }
 }
 
 void Tracker::set_enemy_color(const std::string & enemy_color)
 {
-  enemy_color_ = (enemy_color == "red") ? Color::red : Color::blue;
+  enemy_color_ = parse_enemy_color(enemy_color);
+}
+
+void Tracker::reset()
+{
+  state_ = "lost";
+  pre_state_ = "lost";
+  detect_count_ = 0;
+  temp_lost_count_ = 0;
+  max_temp_lost_count_ = normal_temp_lost_count_;
+  latest_armor_ypd_in_world_.reset();
+  latest_armor_xyz_in_world_.reset();
+  has_target_model_ = false;
+  initialization_rejected_ = false;
+  control_gate_rejected_ = false;
+  tuoluo_detector_.reset();
 }
 
 std::string Tracker::state() const { return state_; }
 
+bool Tracker::ekf_initializing() const { return state_ == "detecting" && has_target_model_; }
+
+int Tracker::ekf_warmup_count() const
+{
+  if (state_ == "detecting") return detect_count_;
+  if (state_ == "tracking") return min_detect_count_;
+  return 0;
+}
+
+bool Tracker::ekf_initialization_rejected() const { return initialization_rejected_; }
+
+bool Tracker::control_safe() const { return !control_gate_rejected_; }
+
+bool Tracker::TuoLuo() const { return tuoluo_detector_.TuoLuo; }
+
+std::optional<Eigen::Vector3d> Tracker::latest_armor_ypd_in_world() const
+{
+  return latest_armor_ypd_in_world_;
+}
+
+std::optional<Eigen::Vector3d> Tracker::latest_armor_xyz_in_world() const
+{
+  return latest_armor_xyz_in_world_;
+}
+
+std::optional<Target> Tracker::diagnostic_target() const
+{
+  if (!has_target_model_) return std::nullopt;
+  return target_;
+}
+
+void Tracker::filter_armors_by_enemy_color(std::list<Armor> & armors, bool use_enemy_color) const
+{
+  if (!use_enemy_color) return;
+  armors.remove_if([this](const Armor & armor) { return armor.color != enemy_color_; });
+}
+
 std::list<Target> Tracker::track(
   std::list<Armor> & armors, std::chrono::steady_clock::time_point t, bool use_enemy_color)
 {
+  latest_armor_ypd_in_world_.reset();
+  latest_armor_xyz_in_world_.reset();
   auto dt = tools::delta_time(t, last_timestamp_);
   last_timestamp_ = t;
 
@@ -44,8 +152,7 @@ std::list<Target> Tracker::track(
     tools::logger()->warn("[Tracker] Large dt: {:.3f}s", dt);
     state_ = "lost";
   }
-  // 过滤掉非我方装甲板
-  armors.remove_if([&](const auto_aim::Armor & a) { return a.color != enemy_color_; });
+  filter_armors_by_enemy_color(armors, use_enemy_color);
 
   // 过滤前哨站顶部装甲板
   // armors.remove_if([this](const auto_aim::Armor & a) {
@@ -75,7 +182,13 @@ std::list<Target> Tracker::track(
     found = update_target(armors, t);
   }
 
+  initialization_rejected_ = state_ == "detecting" && !found;
   state_machine(found);
+  update_tuoluo(found, dt);
+  if (has_target_model_) {
+    target_.ekf().data["temp_lost_count"] = static_cast<double>(temp_lost_count_);
+    target_.ekf().data["max_temp_lost_count"] = static_cast<double>(max_temp_lost_count_);
+  }
 
   // 发散检测
   if (state_ != "lost" && target_.diverged()) {
@@ -94,7 +207,27 @@ std::list<Target> Tracker::track(
     return {};
   }
 
-  if (state_ == "lost") return {};
+  if (state_ == "lost" || state_ == "detecting") return {};
+
+  const auto & x = target_.ekf_x();
+  const auto & data = target_.ekf().data;
+  const auto get = [&data](const char * key, double fallback) {
+    const auto it = data.find(key);
+    return it == data.end() ? fallback : it->second;
+  };
+  const double linear_speed = std::hypot(x[1], x[3]);
+  const double recent_nis_fail_rate = get("recent_nis_failures", 0.0);
+  const bool prediction_only = get("prediction_only", 0.0) > 0.5;
+  const bool allow_temp_lost_prediction = state_ == "temp_lost" && prediction_only;
+  control_gate_rejected_ = get("nis_fail", 0.0) > 0.5 ||
+                           (get("match_rejected", 0.0) > 0.5 && !allow_temp_lost_prediction) ||
+                           linear_speed > control_max_linear_speed_mps_ ||
+                           std::abs(x[7]) > control_max_angular_speed_radps_ ||
+                           recent_nis_fail_rate > control_max_recent_nis_fail_rate_;
+  if (control_gate_rejected_) {
+    tools::logger()->debug("[Tracker] control gate rejected target state");
+    return {};
+  }
 
   std::list<Target> targets = {target_};
   return targets;
@@ -104,6 +237,8 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
   const std::vector<omniperception::DetectionResult> & detection_queue, std::list<Armor> & armors,
   std::chrono::steady_clock::time_point t, bool use_enemy_color)
 {
+  latest_armor_ypd_in_world_.reset();
+  latest_armor_xyz_in_world_.reset();
   omniperception::DetectionResult switch_target{std::list<Armor>(), t, 0, 0};
   omniperception::DetectionResult temp_target{std::list<Armor>(), t, 0, 0};
   if (!detection_queue.empty()) {
@@ -118,6 +253,8 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
     tools::logger()->warn("[Tracker] Large dt: {:.3f}s", dt);
     state_ = "lost";
   }
+
+  filter_armors_by_enemy_color(armors, use_enemy_color);
 
   // 优先选择靠近图像中心的装甲板
   armors.sort([](const Armor & a, const Armor & b) {
@@ -165,9 +302,15 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
     found = update_target(armors, t);
   }
 
+  initialization_rejected_ = state_ == "detecting" && !found;
   pre_state_ = state_;
   // 更新状态机
   state_machine(found);
+  update_tuoluo(found, dt);
+  if (has_target_model_) {
+    target_.ekf().data["temp_lost_count"] = static_cast<double>(temp_lost_count_);
+    target_.ekf().data["max_temp_lost_count"] = static_cast<double>(max_temp_lost_count_);
+  }
 
   // 发散检测
   if (state_ != "lost" && target_.diverged()) {
@@ -176,7 +319,27 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
     return {switch_target, {}};  // 返回switch_target和空的targets
   }
 
-  if (state_ == "lost") return {switch_target, {}};  // 返回switch_target和空的targets
+  if (state_ == "lost" || state_ == "detecting") return {switch_target, {}};
+
+  const auto & x = target_.ekf_x();
+  const auto & data = target_.ekf().data;
+  const auto get = [&data](const char * key, double fallback) {
+    const auto it = data.find(key);
+    return it == data.end() ? fallback : it->second;
+  };
+  const double linear_speed = std::hypot(x[1], x[3]);
+  const double recent_nis_fail_rate = get("recent_nis_failures", 0.0);
+  const bool prediction_only = get("prediction_only", 0.0) > 0.5;
+  const bool allow_temp_lost_prediction = state_ == "temp_lost" && prediction_only;
+  control_gate_rejected_ = get("nis_fail", 0.0) > 0.5 ||
+                           (get("match_rejected", 0.0) > 0.5 && !allow_temp_lost_prediction) ||
+                           linear_speed > control_max_linear_speed_mps_ ||
+                           std::abs(x[7]) > control_max_angular_speed_radps_ ||
+                           recent_nis_fail_rate > control_max_recent_nis_fail_rate_;
+  if (control_gate_rejected_) {
+    tools::logger()->debug("[Tracker] control gate rejected target state");
+    return {switch_target, {}};
+  }
 
   std::list<Target> targets = {target_};
   return {switch_target, targets};
@@ -202,9 +365,14 @@ void Tracker::state_machine(bool found)
   }
 
   else if (state_ == "tracking") {
-    if (found) return;
+    if (found) {
+      temp_lost_count_ = 0;
+      return;
+    }
 
     temp_lost_count_ = 1;
+    max_temp_lost_count_ =
+      target_.name == ArmorName::outpost ? outpost_max_temp_lost_count_ : normal_temp_lost_count_;
     state_ = "temp_lost";
   }
 
@@ -219,6 +387,7 @@ void Tracker::state_machine(bool found)
 
   else if (state_ == "temp_lost") {
     if (found) {
+      temp_lost_count_ = 0;
       state_ = "tracking";
     } else {
       temp_lost_count_++;
@@ -235,10 +404,15 @@ void Tracker::state_machine(bool found)
 
 bool Tracker::set_target(std::list<Armor> & armors, std::chrono::steady_clock::time_point t)
 {
-  if (armors.empty()) return false;
+  if (armors.empty()) {
+    if (has_target_model_) target_.mark_unmatched();
+    return false;
+  }
 
   auto & armor = armors.front();
   solver_.solve(armor);
+  latest_armor_ypd_in_world_ = armor.ypd_in_world;
+  latest_armor_xyz_in_world_ = armor.xyz_in_world;
 
   // 根据兵种优化初始化参数
   auto is_balance = (armor.type == ArmorType::big) &&
@@ -247,43 +421,91 @@ bool Tracker::set_target(std::list<Armor> & armors, std::chrono::steady_clock::t
 
   if (is_balance) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
-    target_ = Target(armor, t, 0.2, 2, P0_dig);
+    target_ = Target(
+      armor, t, 0.2, 2, P0_dig, max_match_distance_, max_match_yaw_diff_,
+      armor_switch_confirm_frames_);
   }
 
   else if (armor.name == ArmorName::outpost) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 81, 0.4, 100, 1e-4, 0, 0}};
-    target_ = Target(armor, t, 0.2765, 3, P0_dig);
+    target_ = Target(
+      armor, t, 0.2765, 3, P0_dig, max_match_distance_, max_match_yaw_diff_,
+      armor_switch_confirm_frames_);
   }
 
   else if (armor.name == ArmorName::base) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1e-4, 0, 0}};
-    target_ = Target(armor, t, 0.3205, 3, P0_dig);
+    target_ = Target(
+      armor, t, 0.3205, 3, P0_dig, max_match_distance_, max_match_yaw_diff_,
+      armor_switch_confirm_frames_);
   }
 
   else {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
-    target_ = Target(armor, t, 0.2, 4, P0_dig);
+    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 0.0004, 1, 1}};
+    target_ = Target(
+      armor, t, 0.24, 4, P0_dig, max_match_distance_, max_match_yaw_diff_,
+      armor_switch_confirm_frames_);
   }
 
+  has_target_model_ = true;
+  tuoluo_detector_.reset();
+  target_.TuoLuo = false;
+
   return true;
+}
+
+void Tracker::update_tuoluo(bool found, double dt)
+{
+  if (!has_target_model_) {
+    tuoluo_detector_.reset();
+    return;
+  }
+  if (state_ == "lost") {
+    tuoluo_detector_.reset();
+    target_.TuoLuo = false;
+    target_.ekf().data["TuoLuo"] = 0.0;
+    return;
+  }
+
+  const auto & data = target_.ekf().data;
+  const auto value = [&data](const char * key, double fallback) {
+    const auto it = data.find(key);
+    return it == data.end() ? fallback : it->second;
+  };
+  const bool reliable = state_ == "tracking" && found && value("observation_accepted", 0.0) > 0.5 &&
+                        value("nis_fail", 0.0) < 0.5;
+  tuoluo_detector_.update(target_.ekf_x()[7], dt, reliable);
+  target_.TuoLuo = tuoluo_detector_.TuoLuo;
+  target_.ekf().data["TuoLuo"] = target_.TuoLuo ? 1.0 : 0.0;
+  target_.ekf().data["tuoluo_filtered_w_radps"] = tuoluo_detector_.filtered_w_radps();
 }
 
 bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock::time_point t)
 {
   target_.predict(t);
 
-  // 同一帧内只使用一个匹配装甲板进行更新，避免多次 update 累积导致结构参数漂移。
-  auto selected = armors.end();
-  for (auto it = armors.begin(); it != armors.end(); ++it) {
-    if (it->name == target_.name && it->type == target_.armor_type) {
-      selected = it;
-      break;
-    }
+  std::vector<Armor> observations;
+  for (auto & armor : armors) {
+    if (armor.name != target_.name || armor.type != target_.armor_type) continue;
+    solver_.solve(armor);
+    observations.push_back(armor);
   }
-  if (selected == armors.end()) return false;
 
-  solver_.solve(*selected);
-  target_.update(*selected);
+  Target updated_target = target_;
+  const TargetUpdateResult update_result = updated_target.update(observations);
+  if (!update_result.matched()) {
+    target_.mark_unmatched();
+    return false;
+  }
+
+  target_ = std::move(updated_target);
+  const auto best = std::max_element(
+    update_result.accepted_observation_indices.begin(),
+    update_result.accepted_observation_indices.end(), [&](std::size_t lhs, std::size_t rhs) {
+      return observations[lhs].box.area() < observations[rhs].box.area();
+    });
+  latest_armor_ypd_in_world_ = observations[*best].ypd_in_world;
+  latest_armor_xyz_in_world_ = observations[*best].xyz_in_world;
 
   return true;
 }

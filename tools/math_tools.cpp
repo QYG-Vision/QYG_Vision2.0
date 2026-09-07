@@ -12,6 +12,21 @@ double limit_rad(double angle)
   return angle;
 }
 
+double angle_difference(double target, double current)
+{
+  return limit_rad(target - current);
+}
+
+double interpolate_angle(double from, double to, double ratio)
+{
+  return limit_rad(from + ratio * angle_difference(to, from));
+}
+
+double yaw_with_zero_at_wrap_boundary(double internal_yaw)
+{
+  return limit_rad(internal_yaw - CV_PI);
+}
+
 Eigen::Vector3d eulers(Eigen::Quaterniond q, int axis0, int axis1, int axis2, bool extrinsic)
 {
   if (!extrinsic) std::swap(axis0, axis2);
