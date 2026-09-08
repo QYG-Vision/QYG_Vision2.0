@@ -302,8 +302,8 @@ int main(int argc, char * argv[])
       data["gimbal_yaw"] = ypr[0] * 57.3;
       data["gimbal_pitch"] = ypr[1] * 57.3;
 
-      // recorder.record(img, q, t);
-      if (const auto enemy_color = gimbal.enemy_color_string()) {
+      const auto enemy_color = gimbal.enemy_color_string();
+      if (enemy_color) {
         tracker.set_enemy_color(*enemy_color);
       }
       auto targets = tracker.track(armors, t);
@@ -334,6 +334,7 @@ int main(int argc, char * argv[])
           data["ekf_center_vx_mps"] = state[1];
           data["ekf_center_vy_mps"] = state[3];
           data["ekf_center_vz_mps"] = state[5];
+          data["ekf_rotation_phase_rad"] = state[6];
           data["ekf_rotation_speed_radps"] = state[7];
         }
         const auto & ekf_data = diagnostic_target->ekf().data;
@@ -357,8 +358,8 @@ int main(int argc, char * argv[])
         data["measurement_world_distance_m"] = measured_ypd[2];
       }
       // Debug模式：绘制识别画面和信息
-      debug_img = img;  // 这里不需要再次 clone，因为后续绘制操作不会影响
-                        // recorder 中的图像
+      // 调试绘制使用独立副本，保留 img 作为摄像头原始画面供录制。
+      debug_img = img.clone();
 
       // 计算FPS
       auto now = std::chrono::steady_clock::now();
@@ -520,6 +521,20 @@ int main(int argc, char * argv[])
       // std::string bullet_text = fmt::format("Bullet Speed: {:.1f} m/s",
       // gimbal.bullet_speed); tools::draw_text(debug_img, bullet_text, {10,
       // y_offset}, {255, 255, 255}, 0.6, 1);
+
+      // 保存绘制了检测框和调试信息的画面，同时记录对应的 IMU 姿态。
+      // EKF 的目标旋转相位/角速度单独写入同一 session 下的 ekf.txt，
+      // 与录制帧保持相同的时间基准；没有有效目标时写 nan nan。
+      std::optional<Eigen::Vector2d> ekf_rotation;
+      if (diagnostic_target) {
+        const Eigen::VectorXd state = diagnostic_target->ekf_x();
+        if (state.size() > 7 && std::isfinite(state[6]) && std::isfinite(state[7])) {
+          ekf_rotation = Eigen::Vector2d{state[6], state[7]};
+        }
+      }
+      recorder.record(
+        img, debug_img, feedback->raw_q, t, ekf_rotation,
+        std::optional<double>{feedback->feedback_yaw_deg}, bullet_speed, enemy_color);
 
       // 显示图像（缩小尺寸以提高性能）
       cv::Mat display_img;
